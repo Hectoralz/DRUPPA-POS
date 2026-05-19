@@ -754,7 +754,7 @@ function logout() {
 // ══════════════════════════════════════════════════════════════
 // DATOS DEL MENÚ
 // ══════════════════════════════════════════════════════════════
-const CATEGORIES = ['Todos','Espresso','Con leche','Bebidas heladas','Cold Brew','Matcha','Sin cafeína'];
+const CATEGORIES = ['Todos','Espresso','Con leche','Bebidas heladas','Cold Brew','Matcha','Sin cafeína','Panadería'];
 
 // Bebidas que SÍ pueden cambiar tipo de leche
 const CAN_CHANGE_MILK = new Set([
@@ -833,6 +833,10 @@ const MENU_SECTIONS = [
     {id:34, name:'Iced Blue Matcha Lavanda', price:85, emoji:'💜'},
     {id:35, name:'Mandarin Fizz',            price:85, emoji:'🍊'},
     {id:36, name:'Tisana',                   price:55, emoji:'🌸'},
+  ]},
+  { id:'panaderia', label:'Panadería', icon:'🥐', items:[
+    {id:37, name:'Pan Almendrado', price:50, emoji:'🥐'},
+    {id:38, name:'Pan Normal',     price:45, emoji:'🍞'},
   ]},
 ];
 
