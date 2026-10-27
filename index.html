@@ -34,12 +34,15 @@ window._set     = set;
 window._remove  = remove;
 window._update  = update;
 window._fbReady = true;
+window._fbConnected = false;
+window._cutsLoaded = false;
 window.loadMenuFromFirebase = null;
 // Inicializar mesasState vacío para que el listener no falle antes del script principal
 if(!window.mesasState) {
   window.mesasState = {};
   for(let m=1;m<=4;m++) window.mesasState['mesa'+m] = {items:[], paid:false};
 }
+if(!window.duenoEstadoHoy) window.duenoEstadoHoy = {};
 // Definir playOrderSound como no-op hasta que el barista lo active
 if(!window.playOrderSound) {
   window.playOrderSound = function() {}; // activarSonido() lo reemplaza
@@ -66,6 +69,8 @@ onValue(ref(db, 'salesHistory'), snap => {
   window.salesHistory = data ? Object.values(data) : [];
   if(document.getElementById('screen-stats')?.classList.contains('active'))
     window.renderStats?.();
+  if(document.getElementById('screen-historial')?.classList.contains('active'))
+    window.renderHistorial?.();
 });
 
 /* ── Listener: número de orden (evita duplicados en multi-dispositivo) ── */
@@ -82,6 +87,7 @@ onValue(ref(db, 'orderNumber'), snap => {
 onValue(ref(db, 'cuts'), snap => {
   const data = snap.val();
   window.cuts = data ? Object.values(data) : [];
+  window._cutsLoaded = true;
   if(document.getElementById('screen-stats')?.classList.contains('active'))
     window.renderCutBanner?.();
 });
@@ -115,9 +121,31 @@ onValue(ref(db, 'mesas'), snap => {
     window.renderMesasScreen?.();
 });
 
+/* ── Listener: estado dueños del día (se reinicia automáticamente cada día) ── */
+function getDuenoDateKey() {
+  return new Date().toLocaleDateString('es-MX',{year:'numeric',month:'2-digit',day:'2-digit'}).split('/').reverse().join('-');
+}
+onValue(ref(db, 'duenosStatus/' + getDuenoDateKey()), snap => {
+  const data = snap.val();
+  window.duenoEstadoHoy = data || {};
+  if(typeof duenoEstadoHoy !== 'undefined') {
+    // Sync al objeto local del script principal
+    Object.assign(duenoEstadoHoy, window.duenoEstadoHoy);
+  }
+});
+
+/* ── Listener: flujo de efectivo (entradas/salidas) ── */
+onValue(ref(db, 'flujoEfectivo'), snap => {
+  const data = snap.val();
+  window.flujoEfectivo = data ? Object.values(data) : [];
+  if(document.getElementById('screen-stats')?.classList.contains('active'))
+    window.renderStats?.();
+});
+
 /* ── Estado de conexión ── */
 onValue(ref(db, '.info/connected'), snap => {
   const ok  = snap.val();
+  window._fbConnected = !!ok;
   const dot = document.getElementById('fb-dot');
   const lbl = document.getElementById('fb-label');
   if(dot) dot.style.background = ok ? '#6fcf7c' : '#e57373';
@@ -127,13 +155,13 @@ onValue(ref(db, '.info/connected'), snap => {
 
 <style>
 :root{
-  --cream:#FAF7F2; --cream-dark:#F0EBE0; --espresso:#2C1A0E; --espresso-mid:#5C3D1E;
-  --caramel:#C07840; --caramel-light:#E8A96A; --caramel-pale:#F5DFC0;
-  --sage:#6B7B5E; --text-main:#2C1A0E; --text-muted:#8A7060;
-  --border:#E0D4C0; --border-strong:#C8B89A;
+  --cream:#FCEAC6; --cream-dark:#F5DDB0; --espresso:#253036; --espresso-mid:#3a4a52;
+  --caramel:#FF6602; --caramel-light:#ff8533; --caramel-pale:#FFE4CC;
+  --sage:#6B7B5E; --text-main:#253036; --text-muted:#5a7080;
+  --border:#FF6602; --border-strong:#cc5200;
   --success:#4A7C59; --danger:#B84444;
   --radius:12px; --radius-sm:8px;
-  --shadow:0 2px 16px rgba(44,26,14,0.08); --shadow-md:0 4px 24px rgba(44,26,14,0.12);
+  --shadow:0 2px 16px rgba(37,48,54,0.10); --shadow-md:0 4px 24px rgba(37,48,54,0.15);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text-main);min-height:100vh;}
@@ -146,8 +174,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text-m
   box-shadow:0 2px 12px rgba(0,0,0,0.2);gap:10px;
 }
 .nav-brand{display:flex;align-items:center;gap:9px;flex-shrink:0;}
-.nav-logo{width:33px;height:33px;border-radius:50%;background:var(--caramel);display:flex;align-items:center;justify-content:center;font-family:'DM Serif Display',serif;color:white;font-size:14px;}
-.nav-title{font-family:'DM Serif Display',serif;color:var(--cream);font-size:18px;}
+.nav-logo{width:33px;height:33px;border-radius:50%;background:var(--caramel);display:flex;align-items:center;justify-content:center;font-family:'DM Serif Display',serif;color:white;font-size:16px;font-weight:700;}
+.nav-title{font-family:'DM Serif Display',serif;color:#FCEAC6;font-size:20px;letter-spacing:0.5px;}
 .nav-tabs{display:flex;gap:3px;flex-wrap:wrap;}
 .nav-tab{padding:7px 12px;border-radius:var(--radius-sm);border:none;background:transparent;color:rgba(250,247,242,0.55);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:all 0.18s;}
 .nav-tab:hover{background:rgba(250,247,242,0.1);color:var(--cream);}
@@ -203,11 +231,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text-m
 }
 .jumper-bar::-webkit-scrollbar{height:0;}
 .jump-btn{
-  padding:5px 14px;border-radius:16px;border:1.5px solid var(--border);
-  background:white;color:var(--text-muted);font-size:12px;font-weight:600;
+  padding:5px 14px;border-radius:16px;border:1.5px solid var(--caramel);
+  background:var(--cream);color:var(--text-muted);font-size:12px;font-weight:600;
   cursor:pointer;transition:all 0.18s;white-space:nowrap;flex-shrink:0;
 }
-.jump-btn:hover{border-color:var(--caramel);color:var(--caramel);}
+.jump-btn:hover{border-color:var(--espresso);color:var(--espresso);}
 .jump-btn.active{background:var(--caramel);border-color:var(--caramel);color:white;}
 .menu-sections{padding:0 18px 40px;}
 .menu-section{margin-top:26px;}
@@ -216,11 +244,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text-m
 .menu-section-title{font-family:'DM Serif Display',serif;font-size:19px;color:var(--espresso);}
 .menu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(142px,1fr));gap:10px;}
 .menu-item{
-  background:white;border-radius:var(--radius);border:1.5px solid var(--border);
+  background:var(--cream);border-radius:var(--radius);border:2px solid var(--caramel);
   padding:13px;cursor:pointer;transition:all 0.18s;position:relative;
   display:flex;flex-direction:column;gap:5px;
 }
-.menu-item:hover{border-color:var(--caramel);transform:translateY(-2px);box-shadow:var(--shadow);}
+.menu-item:hover{background:var(--caramel-pale);transform:translateY(-2px);box-shadow:var(--shadow);}
 .menu-item:active{transform:translateY(0);}
 .item-emoji{font-size:26px;}
 .item-photo{width:100%;height:76px;object-fit:cover;border-radius:8px;}
@@ -228,12 +256,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text-m
 .item-note{font-size:10px;color:var(--sage);font-weight:600;}
 .item-price{font-size:14px;font-weight:700;color:var(--caramel);}
 
-/* ── ORDER PANEL ── */
-.order-panel{background:white;border-left:1px solid var(--border);display:flex;flex-direction:column;height:calc(100vh - 56px);}
+.order-panel{background:var(--cream);border-left:2px solid var(--caramel);display:flex;flex-direction:column;height:calc(100vh - 56px);}
 .order-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 .order-title{font-family:'DM Serif Display',serif;font-size:17px;}
 .order-num{color:var(--caramel);}
-.type-toggle{display:flex;gap:3px;background:var(--cream);border-radius:8px;padding:3px;}
+.type-toggle{display:flex;gap:3px;background:var(--cream-dark);border-radius:8px;padding:3px;}
 .type-btn{padding:6px 12px;border-radius:6px;border:none;background:transparent;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;transition:all 0.18s;}
 .type-btn.active{background:var(--espresso);color:white;}
 .order-items{flex:1;overflow-y:auto;padding:10px 16px;}
@@ -248,9 +275,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text-m
 .order-item-price{font-size:13px;font-weight:700;color:var(--caramel);white-space:nowrap;}
 .rm-btn{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border);background:transparent;cursor:pointer;font-size:13px;font-weight:700;color:var(--text-muted);display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;margin-top:2px;line-height:1;}
 .rm-btn:hover{border-color:var(--danger);color:var(--danger);background:#fff0f0;}
+.edit-item-btn{margin-top:5px;padding:3px 9px;border-radius:6px;border:1.5px solid var(--caramel);background:transparent;color:var(--caramel);font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;display:inline-block;}
+.edit-item-btn:hover{background:var(--caramel);color:white;}
+.courtesy-row{display:flex;gap:5px;margin-top:5px;flex-wrap:wrap;}
+.courtesy-btn{padding:3px 8px;border-radius:6px;border:1.5px solid var(--border);background:transparent;color:var(--text-muted);font-size:10.5px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;display:inline-flex;align-items:center;gap:3px;}
+.courtesy-btn:hover{border-color:var(--sage);color:var(--sage);}
+.courtesy-btn.active{border-color:var(--sage);background:var(--sage);color:white;}
+.courtesy-btn.active.cumple{border-color:#D48AA6;background:#D48AA6;}
+.courtesy-tag{font-size:10px;font-weight:700;margin-top:2px;}
 .order-notes{padding:8px 16px;border-top:1px solid var(--border);flex-shrink:0;}
-.notes-input{width:100%;padding:7px 11px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--cream);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text-main);resize:none;outline:none;transition:border-color 0.2s;}
-.notes-input:focus{border-color:var(--caramel);}
+.notes-input{width:100%;padding:7px 11px;border-radius:var(--radius-sm);border:1.5px solid var(--caramel);background:white;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text-main);resize:none;outline:none;transition:border-color 0.2s;}
+.notes-input:focus{border-color:var(--espresso);}
 .order-footer{padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0;}
 .totals-row{display:flex;justify-content:space-between;margin-bottom:5px;font-size:13px;}
 .totals-total{font-size:17px;font-weight:700;color:var(--espresso);padding-top:8px;border-top:1.5px solid var(--border);margin-top:4px;display:flex;justify-content:space-between;}
@@ -259,23 +294,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text-m
 .pay-btn.cash{background:var(--success);color:white;}
 .pay-btn.cash:hover{background:#3a6347;}
 .pay-btn.digital{background:var(--espresso);color:white;}
-.pay-btn.digital:hover{background:#1a0e06;}
+.pay-btn.digital:hover{background:#1a2830;}
 .pay-btn:active{transform:scale(0.97);}
 .clear-btn{width:100%;padding:9px;margin-top:7px;border-radius:var(--radius-sm);border:1.5px solid var(--border);background:transparent;font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text-muted);cursor:pointer;transition:all 0.18s;}
 .clear-btn:hover{border-color:var(--danger);color:var(--danger);background:#fff0f0;}
 
-/* ── MODAL PERSONALIZACIÓN ── */
-.modal-overlay{display:none;position:fixed;inset:0;z-index:2000;background:rgba(44,26,14,0.55);align-items:center;justify-content:center;padding:20px;}
+.modal-overlay{display:none;position:fixed;inset:0;z-index:2000;background:rgba(37,48,54,0.6);align-items:center;justify-content:center;padding:20px;}
 .modal-overlay.open{display:flex;}
-.modal{background:white;border-radius:16px;width:100%;max-width:420px;max-height:88vh;overflow-y:auto;padding:22px;box-shadow:var(--shadow-md);}
+.modal{background:var(--cream);border-radius:16px;width:100%;max-width:420px;max-height:88vh;overflow-y:auto;padding:22px;box-shadow:var(--shadow-md);border:2px solid var(--caramel);}
 .modal-header{margin-bottom:16px;}
 .modal-title{font-family:'DM Serif Display',serif;font-size:21px;margin-bottom:3px;}
 .modal-subtitle{font-size:13px;color:var(--text-muted);}
 .modal-section{margin-bottom:16px;}
 .modal-section-title{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:9px;}
 .option-chips{display:flex;flex-wrap:wrap;gap:7px;}
-.chip{padding:7px 14px;border-radius:18px;border:1.5px solid var(--border);background:white;font-size:13px;cursor:pointer;transition:all 0.15s;color:var(--text-main);}
-.chip:hover{border-color:var(--caramel);}
+.chip{padding:7px 14px;border-radius:18px;border:1.5px solid var(--caramel);background:white;font-size:13px;cursor:pointer;transition:all 0.15s;color:var(--text-main);}
+.chip:hover{border-color:var(--espresso);}
 .chip.selected{background:var(--caramel);border-color:var(--caramel);color:white;font-weight:600;}
 .qty-btn{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--border);background:transparent;cursor:pointer;font-size:15px;font-weight:700;color:var(--text-muted);display:flex;align-items:center;justify-content:center;transition:all 0.15s;line-height:1;}
 .qty-btn:hover{border-color:var(--caramel);color:var(--caramel);background:var(--caramel-pale);}
@@ -326,14 +360,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text-m
 
 /* ── STATS ── */
 #screen-stats{padding:0;}
+.ai-chip{padding:7px 13px;border-radius:20px;border:1.5px solid var(--border);background:white;font-family:'DM Sans',sans-serif;font-size:11.5px;font-weight:600;color:var(--text-muted);cursor:pointer;transition:all .18s;}
+.ai-chip:hover{border-color:var(--caramel);color:var(--caramel);}
+.ai-msg-user{align-self:flex-end;background:var(--espresso);color:white;padding:10px 14px;border-radius:14px 14px 4px 14px;max-width:82%;font-size:13px;line-height:1.5;white-space:pre-wrap;}
+.ai-msg-ai{align-self:flex-start;background:white;border:1px solid var(--border);color:var(--text-main);padding:10px 14px;border-radius:14px 14px 14px 4px;max-width:88%;font-size:13px;line-height:1.5;white-space:pre-wrap;}
 .stats-layout{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 56px);}
-.stats-sidebar{background:var(--espresso);padding:18px 12px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;}
+.stats-sidebar{background:var(--espresso);padding:18px 12px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;position:sticky;top:56px;height:calc(100vh - 56px);align-self:start;}
 .sidebar-section-title{font-size:10px;font-weight:700;color:rgba(250,247,242,0.38);letter-spacing:1px;text-transform:uppercase;padding:12px 10px 5px;}
 .sidebar-btn{padding:9px 13px;border-radius:var(--radius-sm);border:none;background:transparent;color:rgba(250,247,242,0.65);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.18s;text-align:left;display:flex;align-items:center;gap:8px;}
 .sidebar-btn:hover{background:rgba(250,247,242,0.08);color:var(--cream);}
 .sidebar-btn.active{background:var(--caramel);color:white;}
 .sidebar-btn.active-period{background:rgba(192,120,64,0.28);color:var(--caramel-light);}
-.stats-main{padding:22px;overflow-y:auto;}
+.stats-main{padding:22px;overflow-y:auto;position:relative;}
+.stats-reveal-bar{display:none;align-items:center;justify-content:space-between;gap:12px;background:#FFF4E8;border:1.5px solid var(--caramel);border-radius:var(--radius);padding:11px 16px;margin-bottom:16px;}
+#screen-stats.figures-hidden .stats-reveal-bar{display:flex;}
+.stats-reveal-bar-text{font-size:13px;font-weight:700;color:var(--espresso);}
+.stats-reveal-btn{padding:8px 14px;border-radius:var(--radius-sm);border:none;background:var(--caramel);color:white;font-family:'DM Sans',sans-serif;font-size:12.5px;font-weight:700;cursor:pointer;transition:all 0.18s;white-space:nowrap;}
+.stats-reveal-btn:hover{background:var(--border-strong);}
+.fig{transition:filter 0.15s;}
+#screen-stats.figures-hidden .fig{filter:blur(7px);user-select:none;}
 .stats-section{display:none;}
 .stats-section.active{display:block;}
 .stats-heading{font-family:'DM Serif Display',serif;font-size:24px;color:var(--espresso);margin-bottom:18px;}
@@ -412,7 +457,8 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
 .mesas-title{font-family:'DM Serif Display',serif;font-size:26px;color:var(--espresso);margin-bottom:20px;}
 .mesas-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
 @media(min-width:700px){.mesas-grid{grid-template-columns:repeat(4,1fr);}}
-.mesa-card{background:white;border-radius:16px;border:2px solid var(--border);overflow:hidden;box-shadow:var(--shadow);transition:all 0.2s;}
+
+.mesa-card{background:var(--cream);border-radius:16px;border:2px solid var(--border);overflow:hidden;box-shadow:var(--shadow);transition:all 0.2s;}
 .mesa-card.ocupada{border-color:var(--caramel);}
 .mesa-card-header{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);}
 .mesa-card-num{font-family:'DM Serif Display',serif;font-size:20px;color:var(--espresso);}
@@ -423,7 +469,9 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
 .mesa-card-body{padding:14px 16px;}
 .mesa-item-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;}
 .mesa-subtotal{font-size:15px;font-weight:700;color:var(--espresso);padding-top:8px;margin-top:8px;border-top:1.5px solid var(--border);display:flex;justify-content:space-between;}
-.mesa-card-footer{padding:10px 14px;display:flex;gap:8px;border-top:1px solid var(--border);}
+.mesa-card-footer{padding:10px 14px;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--border);}
+.mesa-add-btn{width:100%;padding:9px;border-radius:var(--radius-sm);border:1.5px dashed var(--caramel);background:var(--caramel-pale);color:var(--caramel);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.18s;}
+.mesa-add-btn:hover{background:var(--caramel);color:white;}
 .mesa-pay-btn{flex:1;padding:9px;border-radius:var(--radius-sm);border:none;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.18s;}
 .mesa-pay-cash{background:var(--success);color:white;}
 .mesa-pay-digital{background:var(--espresso);color:white;}
@@ -432,6 +480,41 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
 .mesa-empty-msg{font-size:13px;color:var(--text-muted);padding:8px 0;}
 
 @media(max-width:768px){#screen-pos.active{grid-template-columns:1fr;}.order-panel{height:auto;}.stats-layout{grid-template-columns:1fr;}.stats-sidebar{display:none;}.nav-tab{padding:6px 9px;font-size:11px;}}
+
+/* ── ENTRADAS / SALIDAS ── */
+.flujo-tabs{display:flex;gap:6px;margin-bottom:16px;}
+.flujo-tab{flex:1;padding:9px 14px;border-radius:var(--radius-sm);border:2px solid var(--border);background:transparent;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.18s;color:var(--text-muted);}
+.flujo-tab.active-entrada{background:#E8F4EA;border-color:var(--success);color:var(--success);}
+.flujo-tab.active-salida{background:#FFEDED;border-color:var(--danger);color:var(--danger);}
+.flujo-form{background:white;border-radius:var(--radius);border:1.5px solid var(--border);padding:16px;margin-bottom:18px;}
+.flujo-form-row{display:grid;grid-template-columns:1fr 140px;gap:10px;align-items:end;margin-bottom:10px;}
+.flujo-input{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-main);background:var(--cream);outline:none;transition:border-color 0.2s;}
+.flujo-input:focus{border-color:var(--caramel);}
+.flujo-btn-add{padding:10px 16px;border-radius:var(--radius-sm);border:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.18s;white-space:nowrap;}
+.flujo-btn-entrada{background:var(--success);color:white;}
+.flujo-btn-entrada:hover{background:#3a6347;}
+.flujo-btn-salida{background:var(--danger);color:white;}
+.flujo-btn-salida:hover{background:#963636;}
+.flujo-kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;}
+.flujo-kpi{background:white;border-radius:var(--radius);border:1px solid var(--border);padding:12px 14px;text-align:center;}
+.flujo-kpi-label{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;}
+.flujo-kpi-val{font-family:'DM Serif Display',serif;font-size:22px;}
+.flujo-kpi-val.entrada{color:var(--success);}
+.flujo-kpi-val.salida{color:var(--danger);}
+.flujo-kpi-val.balance{color:var(--espresso);}
+.flujo-list{display:flex;flex-direction:column;gap:6px;}
+.flujo-item{display:flex;align-items:center;gap:12px;background:white;border-radius:var(--radius-sm);border:1px solid var(--border);padding:10px 13px;font-size:13px;}
+.flujo-item-icon{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.flujo-item-icon.e{background:#E8F4EA;}
+.flujo-item-icon.s{background:#FFEDED;}
+.flujo-item-desc{flex:1;color:var(--text-main);font-weight:500;}
+.flujo-item-time{font-size:11px;color:var(--text-muted);}
+.flujo-item-amount{font-weight:700;font-size:14px;white-space:nowrap;}
+.flujo-item-amount.e{color:var(--success);}
+.flujo-item-amount.s{color:var(--danger);}
+.flujo-item-del{width:24px;height:24px;border-radius:50%;border:1px solid var(--border);background:transparent;cursor:pointer;font-size:13px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.15s;}
+.flujo-item-del:hover{border-color:var(--danger);color:var(--danger);}
+.flujo-empty{text-align:center;padding:28px 16px;color:var(--text-muted);font-size:13px;}
 </style>
 </head>
 <body>
@@ -441,13 +524,12 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
   <div class="login-card" style="position:relative">
     <button onclick="closeLogin()" style="position:absolute;top:12px;right:12px;width:30px;height:30px;border-radius:50%;border:1.5px solid var(--border);background:transparent;cursor:pointer;font-size:16px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;line-height:1;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--danger)';this.style.color='var(--danger)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'">×</button>
     <div class="login-logo">D</div>
-    <div class="login-title">Área de Ventas</div>
-    <div class="login-sub">Ingresa tus credenciales para acceder</div>
-    <input type="text"     id="login-user" class="login-input" placeholder="Usuario"    autocomplete="username">
-    <input type="password" id="login-pass" class="login-input" placeholder="Contraseña" autocomplete="current-password"
-      onkeydown="if(event.key==='Enter') doLogin()">
-    <button class="login-btn" onclick="doLogin()">Entrar</button>
-    <div class="login-error" id="login-error">Usuario o contraseña incorrectos</div>
+    <div class="login-title">🔒 Solo dueños</div>
+    <div class="login-sub">Ingresa el PIN para mostrar las cifras</div>
+    <input type="password" id="login-pass" class="login-input" placeholder="PIN" inputmode="numeric" autocomplete="off"
+      onkeydown="if(event.key==='Enter') doLogin()" style="text-align:center;letter-spacing:4px;font-size:18px;">
+    <button class="login-btn" onclick="doLogin()">Mostrar cifras</button>
+    <div class="login-error" id="login-error">PIN incorrecto</div>
   </div>
 </div>
 
@@ -461,7 +543,7 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
     <button class="nav-tab active"  onclick="showScreen('pos',this)">🛒 Orden</button>
     <button class="nav-tab"         onclick="showScreen('barista',this)">☕ Barista</button>
     <button class="nav-tab"         onclick="showScreen('mesas',this)">🪑 Mesas</button>
-    <button class="nav-tab"         onclick="requireLogin('stats',this)">📊 Ventas</button>
+    <button class="nav-tab"         onclick="showScreen('historial',this)">🧾 Historial</button>
     <button class="nav-tab"         onclick="showScreen('menu-editor',this)">✏️ Menú</button>
   </div>
   <div class="nav-right">
@@ -504,7 +586,7 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
     <div id="modal-options"></div>
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
-      <button class="btn-add"    onclick="confirmAddToOrder()">+ Agregar</button>
+      <button class="btn-add" id="btn-add" onclick="confirmAddToOrder()">+ Agregar</button>
     </div>
   </div>
 </div>
@@ -561,11 +643,28 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
     <div class="pay-summary-total-row">
       <span>Total</span><span id="pay-summary-total">$0.00</span>
     </div>
-    <div class="pay-method-btns">
-      <button class="pay-btn cash"    onclick="finalizePayment('cash')">💵 Efectivo</button>
+    <!-- Campo de efectivo recibido -->
+    <div id="cash-change-section" style="display:none;margin-top:14px;background:var(--caramel-pale);border-radius:10px;padding:14px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:10px;">Efectivo</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <label style="font-size:13px;font-weight:600;white-space:nowrap">Recibido $</label>
+        <input type="number" id="cash-received-input" min="0" step="1" placeholder="0"
+          style="flex:1;padding:9px 12px;border-radius:8px;border:1.5px solid var(--caramel);font-size:16px;font-weight:700;font-family:'DM Sans',sans-serif;outline:none;color:var(--text-main);"
+          oninput="calcCashChange()">
+      </div>
+      <div id="cash-change-display" style="font-size:15px;font-weight:700;color:var(--espresso);display:none;">
+        Cambio: <span id="cash-change-amount" style="color:var(--success);">$0.00</span>
+      </div>
+      <button id="confirm-cash-btn" onclick="finalizePayment('cash')"
+        style="margin-top:12px;width:100%;padding:11px;border-radius:8px;border:none;background:var(--success);color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">
+        ✅ Confirmar pago en efectivo
+      </button>
+    </div>
+    <div class="pay-method-btns" id="pay-method-btns">
+      <button class="pay-btn cash"    onclick="chooseCashPayment()">💵 Efectivo</button>
       <button class="pay-btn digital" onclick="finalizePayment('digital')">💳 Digital</button>
     </div>
-    <button class="btn-cancel" style="width:100%" onclick="document.getElementById('payModal').classList.remove('open')">Cancelar</button>
+    <button class="btn-cancel" style="width:100%" onclick="document.getElementById('payModal').classList.remove('open');document.getElementById('cash-change-section').style.display='none';">Cancelar</button>
   </div>
 </div>
 
@@ -591,6 +690,53 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
   </div>
 </div>
 
+<!-- ── MODAL AGREGAR PRODUCTO A MESA ── -->
+<div class="modal-overlay" id="mesaAddModal">
+  <div class="modal" style="max-width:460px;padding:0;display:flex;flex-direction:column;max-height:82vh;">
+    <div style="padding:20px 22px 14px;border-bottom:1px solid var(--border);">
+      <div class="modal-title" id="mesa-add-title">➕ Agregar a Mesa</div>
+      <input type="text" id="mesa-add-search" placeholder="🔍 Buscar producto..."
+        oninput="renderMesaProductList()"
+        style="width:100%;margin-top:12px;padding:9px 13px;border-radius:8px;border:1.5px solid var(--caramel);background:white;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+    </div>
+    <div id="mesa-add-product-list" style="padding:12px 18px;overflow-y:auto;flex:1;"></div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);">
+      <button class="btn-cancel" style="width:100%" onclick="document.getElementById('mesaAddModal').classList.remove('open')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODAL COBRAR MESA ── -->
+<div class="modal-overlay" id="mesaCobrarModal">
+  <div class="modal" style="max-width:520px;padding:0;display:flex;flex-direction:column;max-height:90vh;">
+    <div style="padding:20px 22px 14px;border-bottom:1px solid var(--border);flex-shrink:0;">
+      <div class="modal-title" id="mesa-cobrar-title">💰 Cobrar Mesa</div>
+      <div class="modal-subtitle" id="mesa-cobrar-subtitle"></div>
+    </div>
+
+    <!-- Selector modo: Unificado vs Separado -->
+    <div style="padding:14px 22px;border-bottom:1px solid var(--border);flex-shrink:0;">
+      <div style="display:flex;gap:8px;">
+        <button id="cobrar-modo-unificado" onclick="setCobrarModo('unificado')"
+          style="flex:1;padding:10px;border-radius:var(--radius-sm);border:2px solid var(--caramel);background:var(--caramel);color:white;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.18s;">
+          💳 Pago único
+        </button>
+        <button id="cobrar-modo-separado" onclick="setCobrarModo('separado')"
+          style="flex:1;padding:10px;border-radius:var(--radius-sm);border:2px solid var(--caramel);background:white;color:var(--caramel);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.18s;">
+          👥 Separar cuentas
+        </button>
+      </div>
+    </div>
+
+    <!-- Contenido dinámico -->
+    <div id="mesa-cobrar-body" style="flex:1;overflow-y:auto;padding:16px 22px;"></div>
+
+    <div style="padding:12px 22px;border-top:1px solid var(--border);flex-shrink:0;">
+      <button class="btn-cancel" style="width:100%" onclick="document.getElementById('mesaCobrarModal').classList.remove('open')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── BARISTA SCREEN ── -->
 <div class="screen" id="screen-barista">
   <div id="sound-activate-bar" style="background:#2C1A0E;color:#FAF7F2;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
@@ -607,14 +753,16 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
 </div>
 
 <!-- ── VENTAS / STATS SCREEN ── -->
-<div class="screen" id="screen-stats">
-  <div id="cut-banner" class="cut-banner" style="display:none"></div>
+<div class="screen figures-hidden" id="screen-stats">
   <div class="stats-layout">
     <div class="stats-sidebar">
       <div class="sidebar-section-title">Reportes</div>
       <button class="sidebar-btn active"  onclick="showStatSection('resumen',this)">📈 Resumen</button>
       <button class="sidebar-btn"         onclick="showStatSection('historial',this)">🧾 Historial</button>
       <button class="sidebar-btn"         onclick="showStatSection('productos',this)">🏆 Top productos</button>
+
+      <div class="sidebar-section-title">Cortes del día</div>
+      <div id="cut-banner"></div>
 
       <div class="sidebar-section-title">Período</div>
       <button class="sidebar-btn period-btn active-period" onclick="filterPeriod('hoy',this)">Hoy</button>
@@ -635,24 +783,93 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
 
       <div class="sidebar-section-title">Exportar</div>
       <button class="sidebar-btn" onclick="exportExcel()" style="color:#7FD47F">📊 Excel</button>
-      <button class="sidebar-btn" onclick="exportPDF()"   style="color:#F4A86A">📄 PDF</button>
+      <button class="sidebar-btn" onclick="exportPDF()"   style="color:#F4A86A">📄 PDF general</button>
+      <button class="sidebar-btn" onclick="exportPDFCortes()" style="color:#FFD97D">✂️ PDF cortes del día</button>
+
+      <div class="sidebar-section-title">Asistente</div>
+      <button class="sidebar-btn" onclick="showStatSection('asistente',this)">🤖 Preguntar IA</button>
 
       <div class="sidebar-section-title">Sesión</div>
-      <button class="sidebar-btn" onclick="logout()" style="color:#f08080">🔒 Cerrar sesión</button>
+      <button class="sidebar-btn" onclick="hideStatsFigures()" style="color:#f08080">🙈 Ocultar cifras</button>
     </div>
 
-    <div class="stats-main">
+    <div class="stats-main" id="stats-main">
+      <div class="stats-reveal-bar" id="stats-reveal-bar">
+        <div class="stats-reveal-bar-text">🔒 Las cifras están ocultas</div>
+        <button class="stats-reveal-btn" onclick="requireLogin('stats',null)">👁️ Mostrar cifras</button>
+      </div>
       <!-- Resumen -->
       <div class="stats-section active" id="stat-resumen">
         <div class="stats-heading" id="stats-period-title">Resumen del día</div>
         <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">Ventas totales</div><div class="kpi-value" id="kpi-total">$0</div><div class="kpi-sub" id="kpi-total-sub">0 transacciones</div></div>
-          <div class="kpi-card"><div class="kpi-label">Efectivo</div><div class="kpi-value" id="kpi-cash">$0</div><div class="kpi-sub" id="kpi-cash-count">0 ventas</div></div>
-          <div class="kpi-card"><div class="kpi-label">Digital</div><div class="kpi-value" id="kpi-digital">$0</div><div class="kpi-sub" id="kpi-digital-count">0 ventas</div></div>
-          <div class="kpi-card"><div class="kpi-label">Ticket promedio</div><div class="kpi-value" id="kpi-avg">$0</div><div class="kpi-sub">por orden</div></div>
+          <div class="kpi-card"><div class="kpi-label">Ventas totales</div><div class="kpi-value fig" id="kpi-total">$0</div><div class="kpi-sub" id="kpi-total-sub">0 transacciones</div></div>
+          <div class="kpi-card"><div class="kpi-label">Efectivo</div><div class="kpi-value fig" id="kpi-cash">$0</div><div class="kpi-sub" id="kpi-cash-count">0 ventas</div></div>
+          <div class="kpi-card"><div class="kpi-label">Digital</div><div class="kpi-value fig" id="kpi-digital">$0</div><div class="kpi-sub" id="kpi-digital-count">0 ventas</div></div>
+          <div class="kpi-card"><div class="kpi-label">Ticket promedio</div><div class="kpi-value fig" id="kpi-avg">$0</div><div class="kpi-sub">por orden</div></div>
         </div>
-        <div class="chart-card"><div class="chart-title">Ventas por hora</div><div class="chart-wrap"><canvas id="hourly-chart"></canvas></div></div>
-        <div class="chart-card"><div class="chart-title">Efectivo vs Digital</div><div class="chart-wrap" style="height:200px"><canvas id="payment-chart"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title">Ventas por hora</div><div class="chart-wrap"><canvas id="hourly-chart" class="fig"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title">Efectivo vs Digital</div><div class="chart-wrap" style="height:200px"><canvas id="payment-chart" class="fig"></canvas></div></div>
+
+        <!-- ── SALIDAS + NETO (inline en Resumen) ── -->
+        <div style="background:white;border-radius:var(--radius);border:1px solid var(--border);padding:18px;margin-bottom:18px;">
+          <div style="font-size:14px;font-weight:700;color:var(--espresso);margin-bottom:14px;">⬇️ Salidas del día</div>
+
+          <!-- Formulario registrar salida -->
+          <div style="background:var(--cream);border-radius:10px;padding:14px;margin-bottom:14px;">
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Registrar salida</div>
+            <div style="display:grid;grid-template-columns:1fr 110px;gap:8px;margin-bottom:8px;">
+              <input type="text"   id="flujo-desc"  class="flujo-input" placeholder="Descripción (ej: Garrafones, Servilletas…)" maxlength="120">
+              <input type="number" id="flujo-monto" class="flujo-input" placeholder="$0" min="0" step="0.50">
+            </div>
+            <div style="display:flex;gap:6px;margin-bottom:8px;">
+              <button id="flujo-met-cash"    onclick="setFlujoMetodo('cash')"
+                style="flex:1;padding:7px;border-radius:var(--radius-sm);border:2px solid var(--success);background:var(--success);color:white;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.18s;">
+                💵 Efectivo
+              </button>
+              <button id="flujo-met-digital" onclick="setFlujoMetodo('digital')"
+                style="flex:1;padding:7px;border-radius:var(--radius-sm);border:2px solid var(--success);background:transparent;color:var(--success);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.18s;">
+                💳 Digital
+              </button>
+            </div>
+            <button onclick="addFlujoMovimiento()" style="width:100%;padding:9px;border-radius:var(--radius-sm);border:none;background:var(--danger);color:white;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.18s;">− Registrar salida</button>
+          </div>
+
+          <!-- Lista salidas del período -->
+          <div id="resumen-salidas-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:14px;"></div>
+          <div id="resumen-salidas-empty" style="font-size:13px;color:var(--text-muted);text-align:center;padding:10px 0;display:none;">Sin salidas registradas en este período</div>
+
+          <!-- Totales neto -->
+          <div id="resumen-neto-block" style="border-top:2px solid var(--border);padding-top:14px;display:none;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
+              <div style="background:#FFEDED;border-radius:10px;padding:10px 13px;">
+                <div style="font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Total salidas</div>
+                <div id="res-salidas-total" style="font-family:'DM Serif Display',serif;font-size:20px;color:var(--danger);">$0</div>
+              </div>
+              <div style="background:#FFEDED;border-radius:10px;padding:10px 13px;">
+                <div style="font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">💵 Sal. efectivo</div>
+                <div id="res-salidas-cash" style="font-family:'DM Serif Display',serif;font-size:20px;color:var(--danger);">$0</div>
+              </div>
+              <div style="background:#FFEDED;border-radius:10px;padding:10px 13px;">
+                <div style="font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">💳 Sal. digital</div>
+                <div id="res-salidas-digital" style="font-family:'DM Serif Display',serif;font-size:20px;color:var(--danger);">$0</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:8px;">
+              <div style="background:var(--espresso);border-radius:10px;padding:10px 14px;">
+                <div style="font-size:10px;font-weight:700;color:rgba(250,247,242,0.5);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Neto del período</div>
+                <div id="res-neto" style="font-family:'DM Serif Display',serif;font-size:22px;color:#FFD97D;">$0</div>
+              </div>
+              <div style="background:var(--cream);border-radius:10px;padding:10px 13px;">
+                <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">💵 Efectivo neto</div>
+                <div id="res-neto-cash" class="fig" style="font-family:'DM Serif Display',serif;font-size:20px;color:var(--espresso);">$0</div>
+              </div>
+              <div style="background:var(--cream);border-radius:10px;padding:10px 13px;">
+                <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">💳 Digital neto</div>
+                <div id="res-neto-digital" class="fig" style="font-family:'DM Serif Display',serif;font-size:20px;color:var(--espresso);">$0</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Historial -->
@@ -674,7 +891,7 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
             <thead>
               <tr>
                 <th><input type="checkbox" id="select-all-sales" onchange="toggleAllSales(this.checked)" style="cursor:pointer"></th>
-                <th>#</th><th>Hora</th><th>Items</th><th>Tipo</th><th>Pago</th><th>Total</th>
+                <th>#</th><th>Hora</th><th>Items</th><th>Tipo</th><th>Pago</th><th>Total</th><th>👑 Dueño</th>
               </tr>
             </thead>
             <tbody id="sales-tbody"></tbody>
@@ -685,9 +902,54 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
       <!-- Top productos -->
       <div class="stats-section" id="stat-productos">
         <div class="stats-heading">Productos más vendidos</div>
-        <div class="chart-card"><div class="chart-title">Unidades vendidas</div><div class="chart-wrap" style="height:320px"><canvas id="products-chart"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title">Unidades vendidas</div><div class="chart-wrap" style="height:320px"><canvas id="products-chart" class="fig"></canvas></div></div>
       </div>
+
+      <!-- Asistente IA -->
+      <div class="stats-section" id="stat-asistente">
+        <div class="stats-heading">🤖 Asistente de ventas</div>
+
+        <div style="background:white;border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px;">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Tu Google AI Studio API key (gratis)</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="password" id="ai-api-key" placeholder="AIza..."
+              style="flex:1;min-width:180px;padding:9px 12px;border-radius:8px;border:1.5px solid var(--border);font-family:'DM Sans',sans-serif;font-size:13px;outline:none;">
+            <button onclick="saveAIKey()"
+              style="padding:9px 16px;border-radius:8px;border:none;background:var(--espresso);color:white;font-weight:700;font-size:12px;cursor:pointer;">Guardar</button>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Se guarda solo en este navegador (localStorage). Consíguela gratis en <b>aistudio.google.com</b> → "Get API Key" (con tu cuenta de Google, sin tarjeta).</div>
+        </div>
+
+        <div id="ai-chat-log" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto;padding:6px;margin-bottom:12px;background:var(--cream);border-radius:var(--radius);min-height:80px;"></div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+          <button class="ai-chip" onclick="askAIQuick('¿Cuántos panes se vendieron hoy?')">¿Panes hoy?</button>
+          <button class="ai-chip" onclick="askAIQuick('¿Cuántos cafés fríos vs calientes se vendieron esta semana?')">Fríos vs calientes (semana)</button>
+          <button class="ai-chip" onclick="askAIQuick('¿Cuál fue el producto más vendido este mes?')">Top producto del mes</button>
+          <button class="ai-chip" onclick="askAIQuick('En promedio, ¿cuántos cafés se venden por día?')">Promedio cafés/día</button>
+        </div>
+
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="ai-question-input" placeholder="Ej: ¿cuántos lattes se vendieron ayer?"
+            style="flex:1;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);font-family:'DM Sans',sans-serif;font-size:13px;outline:none;"
+            onkeydown="if(event.key==='Enter') askAI()">
+          <button onclick="askAI()" id="ai-send-btn"
+            style="padding:11px 20px;border-radius:10px;border:none;background:var(--caramel);color:white;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;">Preguntar</button>
+        </div>
+      </div>
+
     </div>
+  </div>
+</div>
+
+<!-- ── HISTORIAL DEL DÍA (solo lectura) ── -->
+<div class="screen" id="screen-historial">
+  <div style="padding:22px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+      <span class="stats-heading" style="margin:0">Historial de hoy</span>
+      <span id="hist-date" style="font-size:13px;color:var(--text-muted);font-weight:600"></span>
+    </div>
+    <div id="hist-body" style="margin-top:14px"></div>
   </div>
 </div>
 
@@ -707,34 +969,32 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
 
 <script>
 // ══════════════════════════════════════════════════════════════
-// CREDENCIALES DE VENTAS
+// PIN DE DUEÑO — solo para revelar las cifras de Ventas.
+// Entrar al tab de Ventas es libre; los números quedan borrosos
+// hasta que se ingrese este PIN. Para cambiarlo, edita OWNER_PIN.
 // ══════════════════════════════════════════════════════════════
-const CREDS = { user: 'druppa', pass: '244000' };
+const OWNER_PIN = '244000';
 let statsUnlocked = false;
-let pendingStatsBtn = null;
+window.flujoEfectivo = window.flujoEfectivo || [];
 
 function closeLogin() {
   document.getElementById('login-overlay').classList.remove('open');
-  pendingStatsBtn = null;
 }
 
 function requireLogin(screenName, btn) {
-  if(statsUnlocked) { showScreen(screenName, btn); return; }
-  pendingStatsBtn = btn;
-  document.getElementById('login-user').value = '';
+  if(statsUnlocked) return;
   document.getElementById('login-pass').value = '';
   document.getElementById('login-error').classList.remove('show');
   document.getElementById('login-overlay').classList.add('open');
-  setTimeout(()=>document.getElementById('login-user').focus(), 100);
+  setTimeout(()=>document.getElementById('login-pass').focus(), 100);
 }
 
 function doLogin() {
-  const u = document.getElementById('login-user').value.trim();
   const p = document.getElementById('login-pass').value.trim();
-  if(u === CREDS.user && p === CREDS.pass) {
+  if(p === OWNER_PIN) {
     statsUnlocked = true;
     document.getElementById('login-overlay').classList.remove('open');
-    showScreen('stats', pendingStatsBtn);
+    document.getElementById('screen-stats')?.classList.remove('figures-hidden');
   } else {
     const err = document.getElementById('login-error');
     err.classList.add('show');
@@ -742,6 +1002,12 @@ function doLogin() {
     document.getElementById('login-pass').focus();
     setTimeout(()=>err.classList.remove('show'), 3000);
   }
+}
+
+function hideStatsFigures() {
+  statsUnlocked = false;
+  document.getElementById('screen-stats')?.classList.add('figures-hidden');
+  showToast('🙈 Cifras ocultas');
 }
 
 function logout() {
@@ -754,7 +1020,38 @@ function logout() {
 // ══════════════════════════════════════════════════════════════
 // DATOS DEL MENÚ
 // ══════════════════════════════════════════════════════════════
-const CATEGORIES = ['Todos','Espresso','Con leche','Bebidas heladas','Cold Brew','Matcha','Sin cafeína','Panadería'];
+const CATEGORIES = ['Todos','Espresso','Con leche','Bebidas heladas','Cold Brew','Matcha','Sin cafeína','Panadería','Agua','Combos'];
+
+// Bebidas que SÍ pueden agregar extra shot (+$20)
+const CAN_EXTRA_SHOT = new Set([
+  // Espresso puros
+  'Espresso','Long Black','Americano',
+  // Con leche (base espresso)
+  'Cortado','Flat White','Latte','Cappuccino','Dirty Chai',
+  'Mocha','Mocha Blanco','Mocha Menta','Caramel Macchiato','Red Velvet Latte',
+  // Bebidas heladas con espresso
+  'Iced Espresso Americano','Iced Latte','Iced Caramel',
+  'Iced Chai Latte','Frappé Clásico','Frappé Mocha','Frappé Caramelo',
+  'Shakerato Cold Foam',
+  // Combos con espresso
+  'Combo Iced Latte','Combo Americano',
+]);
+
+// Bebidas que SÍ pueden agregar extra foam (+$20)
+// Solo bebidas frías que ya tengan o puedan llevar foam
+const CAN_EXTRA_FOAM = new Set([
+  'Tiramisú Cold Foam','Cinnamon Cold Foam','Shakerato Cold Foam',
+  'Iced Latte','Iced Caramel','Iced Chai Latte',
+  'Frappé Clásico','Frappé Mocha','Frappé Caramelo',
+  'Cold Brew','Vainilla Cold Foam',
+  'Iced Matcha Latte','Iced Coconut Foam Matcha',
+  'Iced Matcha Strawberry Foam','Iced Matcha Pistachio Foam','Iced Matcha Coconut Foam',
+  'Iced Blue Matcha Lavanda',
+  'Combo Iced Latte','Combo Latte Pan',
+]);
+
+const EXTRA_SHOT_OPTIONS = ['Sin extra shot','Extra shot (+$20)'];
+const EXTRA_FOAM_OPTIONS = ['Sin extra foam','Extra foam (+$20)'];
 
 // Bebidas que SÍ pueden cambiar tipo de leche
 const CAN_CHANGE_MILK = new Set([
@@ -764,23 +1061,34 @@ const CAN_CHANGE_MILK = new Set([
   'Iced Chai Latte','Frappé Clásico','Frappé Mocha','Frappé Caramelo',
   'Matcha Orgánico','Matcha Latte','Iced Matcha Latte',
   'Iced Matcha Strawberry Foam','Iced Matcha Pistachio Foam','Matcha Ceremonial',
+  'Iced Matcha Coconut Foam','Combo Iced Latte','Combo Latte Pan',
 ]);
 
 // Bebidas que SÍ pueden agregar sabor extra
 const CAN_CHANGE_FLAVOR = new Set([
   'Latte','Cappuccino','Shakerato Cold Foam',
-  'Iced Latte','Frappé Clásico',
+  'Iced Latte','Frappé Clásico','Combo Iced Latte','Combo Latte Pan',
 ]);
 
 const MILK_OPTIONS = ['Entera (incluida)','Deslactosada (+$3)','Light (+$5)','Almendra (+$8)'];
 const FLAVORS      = ['Sin sabor extra','Vainilla (+$10)','Caramelo (+$10)','Avellana (+$10)','Canela (+$10)','Menta (+$10)','Crema Irlandesa (+$10)','Amareto (+$10)'];
 const TEMP_OPTIONS = ['Caliente','Frío'];
 
+const CAN_CHANGE_TEMP = new Set([
+  'Mocha','Mocha Blanco','Mocha Menta','Red Velvet Latte',
+  'Matcha Orgánico','Matcha Latte','Iced Matcha Latte',
+  'Iced Matcha Strawberry Foam','Iced Matcha Pistachio Foam','Matcha Ceremonial',
+  'Iced Coconut Matcha Foam','Blue Matcha Lavanda','Iced Blue Matcha Lavanda',
+  'Dirty Chai','Americano','Combo Americano',
+]);
+
 function buildOpts(name) {
   const o = {};
-  o.temp = TEMP_OPTIONS;
-  if(CAN_CHANGE_MILK.has(name)) o.milk = MILK_OPTIONS;
-  if(CAN_CHANGE_FLAVOR.has(name)) o.flavor = FLAVORS;
+  if(CAN_CHANGE_TEMP.has(name))   o.temp      = TEMP_OPTIONS;
+  if(CAN_CHANGE_MILK.has(name))   o.milk      = MILK_OPTIONS;
+  if(CAN_CHANGE_FLAVOR.has(name)) o.flavor    = FLAVORS;
+  if(CAN_EXTRA_SHOT.has(name))    o.extraShot = EXTRA_SHOT_OPTIONS;
+  if(CAN_EXTRA_FOAM.has(name))    o.extraFoam = EXTRA_FOAM_OPTIONS;
   return o;
 }
 
@@ -789,6 +1097,19 @@ const MENU_SECTIONS = [
   { id:'espresso', label:'Espresso', icon:'☕', items:[
     {id:1, name:'Espresso',   price:35, emoji:'☕'},
     {id:2, name:'Long Black', price:45, emoji:'☕'},
+    {id:55, name:'Americano', price:45, emoji:'☕'},
+    {id:56, name:'ESPRESSO TONIC',   price:65,  emoji:'☕'},
+    {id:57, name:'SABOR EXTRA',      price:10,  emoji:'➕'},
+    {id:58, name:'EXTRA FOAM',       price:20,  emoji:'➕'},
+    {id:59, name:'LATTE P. CLOUD',   price:85,  emoji:'☁️'},
+    {id:60, name:'MATCHA P. CLOUD',  price:90,  emoji:'☁️'},
+    {id:61, name:'CHAI P. CLOUD',    price:90,  emoji:'☁️'},
+    {id:62, name:'Leche de almendra',   price:8,  emoji:'🥛'},
+    {id:63, name:'Leche de Avena',      price:15, emoji:'🥛'},
+    {id:64, name:'Leche Light',         price:5,  emoji:'🥛'},
+    {id:65, name:'Leche deslactosada',  price:3,  emoji:'🥛'},
+    {id:66, name:'Extracto de Miel',    price:10, emoji:'🍯'},
+    {id:67, name:'Beso de Nuez',        price:5,  emoji:'🌰'},
   ]},
   { id:'con-leche', label:'Con leche', icon:'🥛', items:[
     {id:3,  name:'Cortado',           price:45, emoji:'🥛'},
@@ -826,7 +1147,8 @@ const MENU_SECTIONS = [
     {id:29, name:'Iced Coconut Foam Matcha',    price:90, emoji:'🥥', note:'Monk Fruit'},
     {id:30, name:'Iced Matcha Strawberry Foam', price:90, emoji:'🍓', note:'Monk Fruit'},
     {id:31, name:'Iced Matcha Pistachio Foam',  price:90, emoji:'🌿', note:'Monk Fruit'},
-    {id:32, name:'Matcha Ceremonial',           price:75, emoji:'🍵'},
+    {id:32, name:'Matcha Ceremonial',           price:80, emoji:'🍵'},
+    {id:50, name:'Iced Matcha Coconut Foam',    price:90, emoji:'🥥', note:'Monk Fruit'},
   ]},
   { id:'sin-cafeina', label:'Sin cafeína', icon:'🌸', items:[
     {id:33, name:'Blue Matcha Lavanda',      price:85, emoji:'💜'},
@@ -837,6 +1159,14 @@ const MENU_SECTIONS = [
   { id:'panaderia', label:'Panadería', icon:'🥐', items:[
     {id:37, name:'Pan Almendrado', price:50, emoji:'🥐'},
     {id:38, name:'Pan Normal',     price:45, emoji:'🍞'},
+    {id:51, name:'Galletas',       price:20, emoji:'🍪'},
+  ]},
+  { id:'agua', label:'Agua', icon:'💧', items:[
+    {id:52, name:'Agua (500ml)',   price:10, emoji:'💧'},
+  ]},
+  { id:'combos', label:'Combos', icon:'🎁', items:[
+    {id:53, name:'Combo Latte Pan',    price:85, emoji:'🎁', note:'Iced Latte + Pan Normal'},
+    {id:54, name:'Combo Americano',    price:65, emoji:'☕', note:'Americano + Pan Normal'},
   ]},
 ];
 
@@ -854,29 +1184,32 @@ let menuItems = MENU_SECTIONS.flatMap(s =>
 // ── Persistencia de menú en Firebase ──
 function saveMenuToFirebase() {
   if(!window._fbReady) return;
-  // Guardamos solo los campos necesarios (sin options que se reconstruyen)
-  const toSave = {};
+  // Multi-path update: solo campos de texto, NUNCA reenvía las fotos (base64) del menú
+  const upd = {};
   menuItems.forEach(item => {
-    toSave['item_' + item.id] = {
-      id: item.id,
-      name: item.name,
-      price: item.price,
-      category: item.category,
-      emoji: item.emoji,
-      active: item.active,
-      stock: item.stock || 99,
-      photo: item.photo || null,
-      note: item.note || null
-    };
+    const b = 'item_' + item.id + '/';
+    upd[b+'id']       = item.id;
+    upd[b+'name']     = item.name;
+    upd[b+'price']    = item.price;
+    upd[b+'category'] = item.category;
+    upd[b+'emoji']    = item.emoji;
+    upd[b+'active']   = item.active;
+    upd[b+'stock']    = item.stock || 99;
+    upd[b+'note']     = item.note || null;
   });
-  window._set(window._ref(window._db, 'menuData'), toSave);
+  window._update(window._ref(window._db, 'menuData'), upd);
 }
 
 function loadMenuFromFirebase(data) {
   if(!data) return;
   const saved = Object.values(data);
   saved.forEach(saved => {
-    const item = menuItems.find(i => i.id === saved.id);
+    let item = menuItems.find(i => i.id === saved.id);
+    if(!item && saved.name) {
+      const sn = String(saved.name).trim().toLowerCase();
+      item = menuItems.find(i => String(i.name).trim().toLowerCase() === sn);
+      if(item) item.id = saved.id;
+    }
     if(item) {
       item.name     = saved.name;
       item.price    = saved.price;
@@ -896,6 +1229,7 @@ function loadMenuFromFirebase(data) {
     }
   });
   buildMenu();
+  loadPhotosFromLocalStorage();
   if(document.getElementById('screen-menu-editor')?.classList.contains('active'))
     renderMenuEditor();
 }
@@ -918,9 +1252,99 @@ let customDateFrom  = null;
 let customDateTo    = null;
 let hourlyChart, paymentChart, productsChart;
 
+// ══════════════════════════════════════════════════════════════
+// SISTEMA DE DUEÑOS
+// ══════════════════════════════════════════════════════════════
+const DUENOS = ['hector','hector eli','alison','joseph','camila','danny','liz','danielita'];
+
+// Estado de dueños guardado en Firebase por fecha
+// Estructura en Firebase: duenosStatus/YYYY-MM-DD/{ hector: 'gratis'|'50%', ... }
+// 'gratis' = ya usó la bebida gratis hoy, '50%' = sigue con 50%
+// Si no existe o es de otro día → tiene derecho a bebida gratis
+let duenoEstadoHoy = {}; // cargado desde Firebase
+let _duenoFechaHoy = new Date().toLocaleDateString('es-MX',{year:'numeric',month:'2-digit',day:'2-digit'}).split('/').reverse().join('-');
+
+// Carga el estado de dueños del día desde Firebase
+function cargarEstadoDuenosFirebase() {
+  if(!window._fbReady) return;
+  window._ref(window._db, 'duenosStatus/' + _duenoFechaHoy);
+  // El listener se registra una vez al init
+}
+
+// Inicializar listener de dueños
+function initDuenosListener() {
+  if(!window._fbReady) { setTimeout(initDuenosListener, 500); return; }
+  const hoy = new Date().toLocaleDateString('es-MX',{year:'numeric',month:'2-digit',day:'2-digit'}).split('/').reverse().join('-');
+  _duenoFechaHoy = hoy;
+  const { onValue, ref } = window._onValueRef || {};
+  // Usamos el ref/onValue globales que ya están en el módulo Firebase
+  // Accedemos via window._db y window._ref (ya expuestos)
+  // Para el listener usamos la función global onValue que inyectamos abajo
+  window._duenosRef = window._ref(window._db, 'duenosStatus/' + hoy);
+  window._duenosUnsubscribe && window._duenosUnsubscribe();
+}
+
+function isDueno(nombre) {
+  return DUENOS.includes(nombre.trim().toLowerCase());
+}
+
+function getDuenoKey(nombre) {
+  return nombre.trim().toLowerCase();
+}
+
+function getTodayKey() {
+  return new Date().toLocaleDateString('es-MX',{year:'numeric',month:'2-digit',day:'2-digit'}).split('/').reverse().join('-');
+}
+
+function getDuenoStatus(nombre) {
+  const key = getDuenoKey(nombre);
+  // Siempre leer desde window.duenoEstadoHoy que se actualiza en tiempo real por Firebase
+  const estadoActual = window.duenoEstadoHoy || duenoEstadoHoy;
+  return estadoActual[key] || null;
+}
+
+// Devuelve el precio real a cobrar según estado del dueño
+function calcPrecioDueno(precioBase, nombre) {
+  const status = getDuenoStatus(nombre);
+  if (!status) {
+    // Primera bebida del día: gratis
+    return 0;
+  } else {
+    // Siguientes ese día: 50% descuento
+    return precioBase * 0.5;
+  }
+}
+
+// Actualiza el estado del dueño en Firebase tras procesar un item
+function actualizarEstadoDueno(nombre) {
+  const key = getDuenoKey(nombre);
+  const hoy = getTodayKey();
+  const estadoActual = window.duenoEstadoHoy || duenoEstadoHoy;
+  if (!estadoActual[key]) {
+    duenoEstadoHoy[key] = 'gratis';
+    window.duenoEstadoHoy[key] = 'gratis';
+  } else {
+    duenoEstadoHoy[key] = '50%';
+    window.duenoEstadoHoy[key] = '50%';
+  }
+  // Guardar en Firebase para que persista durante el día en todos los dispositivos
+  if(window._fbReady) {
+    const updateObj = {};
+    updateObj[key] = duenoEstadoHoy[key];
+    window._update(window._ref(window._db, 'duenosStatus/' + hoy), updateObj);
+  }
+}
+
+// Retorna el label del beneficio aplicado
+function labelBeneficioDueno(nombre) {
+  const status = getDuenoStatus(nombre);
+  if (!status) return '🎁 Gratis (dueño)';
+  return '50% dueño';
+}
+
 const CUT_SCHEDULES = [
   { label:'Corte mañana', endHour:14, endMin:30 },
-  { label:'Corte tarde',  endHour:22, endMin:0  },
+  { label:'Corte tarde',  endHour:21, endMin:0  },
 ];
 
 // ══════════════════════════════════════════════════════════════
@@ -946,9 +1370,61 @@ function showScreen(name, btn) {
   if(btn) btn.classList.add('active');
   if(name==='barista')     renderBaristaScreen();
   if(name==='mesas')       renderMesasScreen();
-  if(name==='stats')       { renderCutBanner(); renderStats(); setTimeout(renderCharts,100); }
+  if(name==='stats') {
+    statsUnlocked = false;
+    document.getElementById('screen-stats')?.classList.add('figures-hidden');
+    renderCutBanner(); renderStats(); setTimeout(renderCharts,100);
+  }
+  if(name==='historial')   renderHistorial();
   if(name==='menu-editor') renderMenuEditor();
 }
+
+// ══════════════════════════════════════════════════════════════
+// HISTORIAL DEL DÍA — solo lectura, únicamente ventas de hoy
+// ══════════════════════════════════════════════════════════════
+function _histEsc(v){
+  return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function renderHistorial(){
+  const body = document.getElementById('hist-body');
+  const dEl  = document.getElementById('hist-date');
+  if(!body) return;
+  const now = new Date();
+  const tod = now.toDateString();
+  if(dEl) dEl.textContent = now.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'});
+  const sales = (window.salesHistory||[])
+    .filter(s => s && s.timestamp && new Date(s.timestamp).toDateString() === tod)
+    .sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+  if(!sales.length){
+    body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:15px">Aún no hay ventas hoy</div>';
+    return;
+  }
+  const rows = sales.map(s => {
+    const items = (s.items||[]).map(i => {
+      const mods = (i.mods && i.mods.length) ? `<div style="font-size:11px;color:var(--text-muted)">${i.mods.map(_histEsc).join(' · ')}</div>` : '';
+      return `<div style="padding:2px 0"><b>${_histEsc(i.name)}</b>${mods}</div>`;
+    }).join('');
+    const isCash = s.paymentMethod === 'cash';
+    const tipo = s.type === 'aqui' ? ('Para aquí' + (s.mesa ? ' · Mesa ' + _histEsc(s.mesa) : '')) : 'Para llevar';
+    const dueno = s.esDueno ? `<div style="font-size:11px;color:var(--caramel);font-weight:700">Dueño: ${_histEsc(s.duenoNombre||'')}</div>` : '';
+    return `<tr style="border-top:1px solid rgba(37,48,54,0.12)">
+      <td style="padding:10px 8px;font-weight:700">#${String(s.id).padStart(3,'0')}</td>
+      <td style="padding:10px 8px;white-space:nowrap">${_histEsc(s.timeStr||'')}</td>
+      <td style="padding:10px 8px">${items}${dueno}</td>
+      <td style="padding:10px 8px">${tipo}</td>
+      <td style="padding:10px 8px"><span class="pay-tag ${isCash?'pay-cash':'pay-digital'}">${isCash?'💵 Efectivo':'💳 Digital'}</span></td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div style="background:#fff;border-radius:14px;box-shadow:var(--shadow);overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px">
+        <th style="padding:10px 8px">#</th><th style="padding:10px 8px">Hora</th><th style="padding:10px 8px">Artículos</th>
+        <th style="padding:10px 8px">Tipo</th><th style="padding:10px 8px">Pago</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+window.renderHistorial = renderHistorial;
 
 // ══════════════════════════════════════════════════════════════
 // MENÚ POR SECCIONES + JUMP BAR
@@ -1033,8 +1509,16 @@ function confirmCustomerName(skip) {
   // Actualizar etiqueta en panel
   const lbl = document.getElementById('order-customer-label');
   if(orderCustomerName) {
-    lbl.textContent = '👤 ' + orderCustomerName;
-    lbl.style.display = 'block';
+    if(isDueno(orderCustomerName)) {
+      const status = getDuenoStatus(orderCustomerName);
+      const tag = status ? ' · 50% dueño' : ' · 🎁 1ª bebida gratis';
+      lbl.innerHTML = '👑 ' + orderCustomerName + '<span style="color:var(--caramel);font-size:11px;margin-left:5px">' + tag + '</span>';
+      lbl.style.display = 'block';
+      showToast('👑 ' + orderCustomerName + ' — ' + (status ? 'bebidas al 50%' : '¡Primera bebida gratis!'));
+    } else {
+      lbl.textContent = '👤 ' + orderCustomerName;
+      lbl.style.display = 'block';
+    }
   } else {
     lbl.style.display = 'none';
   }
@@ -1054,9 +1538,11 @@ function _openItemModalDirect(itemId) {
 
   const opts = item.options||{};
   const secs = [];
-  if(opts.temp)   { pendingModal.selections.temp   = opts.temp[0];   secs.push({key:'temp',   label:'Temperatura',   options:opts.temp});   }
-  if(opts.milk)   { pendingModal.selections.milk   = opts.milk[0];   secs.push({key:'milk',   label:'Tipo de leche', options:opts.milk});   }
-  if(opts.flavor) { pendingModal.selections.flavor = opts.flavor[0]; secs.push({key:'flavor', label:'Sabor extra',   options:opts.flavor}); }
+  if(opts.temp)      { pendingModal.selections.temp      = opts.temp[0];      secs.push({key:'temp',      label:'Temperatura',    options:opts.temp});      }
+  if(opts.milk)      { pendingModal.selections.milk      = opts.milk[0];      secs.push({key:'milk',      label:'Tipo de leche',  options:opts.milk});      }
+  if(opts.flavor)    { pendingModal.selections.flavor    = opts.flavor[0];    secs.push({key:'flavor',    label:'Sabor extra',    options:opts.flavor});    }
+  if(opts.extraShot) { pendingModal.selections.extraShot = opts.extraShot[0]; secs.push({key:'extraShot', label:'Extra shot',     options:opts.extraShot}); }
+  if(opts.extraFoam) { pendingModal.selections.extraFoam = opts.extraFoam[0]; secs.push({key:'extraFoam', label:'Extra foam',     options:opts.extraFoam}); }
 
   let html = `<div class="modal-section">
     <div class="modal-section-title">Cantidad</div>
@@ -1091,12 +1577,54 @@ function changeModalQty(d) {
 
 function closeModal() {
   document.getElementById('customModal').classList.remove('open');
+  const btnAdd = document.getElementById('btn-add');
+  if(btnAdd) btnAdd.textContent = '+ Agregar';
   pendingModal = null;
+}
+
+function removeOrderItem(id){ orderItems=orderItems.filter(i=>i.id!==id); renderOrderPanel(); }
+
+function editOrderItem(id) {
+  const existing = orderItems.find(i=>i.id===id);
+  if(!existing) return;
+  const menuItem = menuItems.find(m=>m.name===existing.name);
+  if(!menuItem){ showToast('No se encontró el producto en el menú'); return; }
+  const opts = menuItem.options||{};
+  const secs = [];
+  if(opts.temp)      secs.push({key:'temp',      label:'Temperatura',   options:opts.temp});
+  if(opts.milk)      secs.push({key:'milk',      label:'Tipo de leche', options:opts.milk});
+  if(opts.flavor)    secs.push({key:'flavor',    label:'Sabor extra',   options:opts.flavor});
+  if(opts.extraShot) secs.push({key:'extraShot', label:'Extra shot',    options:opts.extraShot});
+  if(opts.extraFoam) secs.push({key:'extraFoam', label:'Extra foam',    options:opts.extraFoam});
+  if(!secs.length){ showToast('Este producto no tiene opciones para editar'); return; }
+
+  pendingModal = { item:menuItem, selections:{}, qty:1, editingId:id };
+  // Pre-seleccionar valores actuales
+  if(opts.temp)      pendingModal.selections.temp      = existing.mods.find(m=>TEMP_OPTIONS.includes(m))   || opts.temp[0];
+  if(opts.milk)      pendingModal.selections.milk      = opts.milk.find(mo=>existing.mods.includes(mo.replace(/ \(\+\$\d+\)/,''))) || opts.milk[0];
+  if(opts.flavor)    pendingModal.selections.flavor    = opts.flavor.find(f=>existing.mods.includes(f.replace(/ \(\+\$\d+\)/,''))) || opts.flavor[0];
+  if(opts.extraShot) pendingModal.selections.extraShot = existing.mods.some(m=>m.includes('Extra shot')) ? 'Extra shot (+$20)' : opts.extraShot[0];
+  if(opts.extraFoam) pendingModal.selections.extraFoam = existing.mods.some(m=>m.includes('Extra foam')) ? 'Extra foam (+$20)' : opts.extraFoam[0];
+
+  document.getElementById('modal-item-name').textContent  = menuItem.emoji+' '+menuItem.name;
+  document.getElementById('modal-item-price').textContent = '$'+menuItem.price.toFixed(2);
+
+  let html = '';
+  secs.forEach(s => {
+    html += `<div class="modal-section"><div class="modal-section-title">${s.label}</div><div class="option-chips">
+      ${s.options.map(opt=>
+        `<div class="${pendingModal.selections[s.key]===opt||pendingModal.selections[s.key]===opt.replace(/ \(\+\$\d+\)/,'')?'chip selected':'chip'}" data-key="${s.key}" data-val="${opt.replace(/"/g,'&quot;')}" onclick="selectChip(this)">${opt}</div>`
+      ).join('')}
+    </div></div>`;
+  });
+  document.getElementById('modal-options').innerHTML = html;
+  document.getElementById('btn-add').textContent = '✓ Guardar cambios';
+  document.getElementById('customModal').classList.add('open');
 }
 
 function confirmAddToOrder() {
   if(!pendingModal) return;
-  const {item,selections,qty} = pendingModal;
+  const {item, selections, qty, editingId, addToMesaDirect} = pendingModal;
   let price = item.price;
   Object.values(selections).forEach(v=>{ const m=String(v).match(/\+\$(\d+)/); if(m) price+=parseInt(m[1]); });
   const mods = [];
@@ -1105,11 +1633,79 @@ function confirmAddToOrder() {
     mods.push(selections.milk.replace(/ \(\+\$\d+\)/,''));
   if(selections.flavor && selections.flavor!=='Sin sabor extra')
     mods.push(selections.flavor.replace(/ \(\+\$\d+\)/,''));
-  for(let i=0;i<qty;i++)
-    orderItems.push({id:Date.now()+i, itemId:item.id, name:item.name, emoji:item.emoji, price, mods:[...mods]});
-  closeModal();
+  if(selections.extraShot && selections.extraShot !== 'Sin extra shot')
+    mods.push('Extra shot (+$20)');
+  if(selections.extraFoam && selections.extraFoam !== 'Sin extra foam')
+    mods.push('Extra foam (+$20)');
+
+  // Aplicar beneficio de dueño (solo en modo para llevar/normal, no edición)
+  let duenoLabel = null;
+  if(!editingId && !addToMesaDirect && orderCustomerName && isDueno(orderCustomerName)) {
+    duenoLabel = labelBeneficioDueno(orderCustomerName);
+    const precioFinal = calcPrecioDueno(price, orderCustomerName);
+    actualizarEstadoDueno(orderCustomerName);
+    // Actualizar el label del dueño en el panel
+    const lbl = document.getElementById('order-customer-label');
+    if(lbl) {
+      const status = getDuenoStatus(orderCustomerName);
+      const tag = status === 'gratis' ? ' · 50% dueño (próximas)' : ' · 50% dueño';
+      lbl.innerHTML = '👑 ' + orderCustomerName + '<span style="color:var(--caramel);font-size:11px;margin-left:5px">' + tag + '</span>';
+    }
+    price = precioFinal;
+    if(duenoLabel === '🎁 Gratis (dueño)') showToast('🎁 ¡Bebida gratis para ' + orderCustomerName + '!');
+    else showToast('💰 50% descuento aplicado para ' + orderCustomerName);
+  }
+
+  if(editingId) {
+    const idx = orderItems.findIndex(i=>i.id===editingId);
+    if(idx!==-1) {
+      const existing = orderItems[idx];
+      let finalPrice = price;
+      // Si el artículo ya tenía una cortesía activa, reaplicarla sobre el nuevo precio base
+      if(existing.courtesy === 'gratis') finalPrice = 0;
+      else if(existing.courtesy === 'cumple') finalPrice = price/2;
+      orderItems[idx] = {...existing, price:finalPrice, originalPrice:price, mods:[...mods]};
+    }
+    document.getElementById('btn-add').textContent = '+ Agregar';
+    closeModal(); renderOrderPanel();
+    showToast(`✏️ ${item.name} actualizado`);
+  } else if(addToMesaDirect) {
+    document.getElementById('btn-add').textContent = '+ Agregar';
+    closeModal();
+    _commitAddToMesa({id:item.id, name:item.name, emoji:item.emoji, price}, mods, addToMesaDirect);
+  } else {
+    for(let i=0;i<qty;i++)
+      orderItems.push({id:Date.now()+i, itemId:item.id, name:item.name, emoji:item.emoji, price, originalPrice:price, mods:[...mods], duenoLabel: duenoLabel, courtesy:null});
+    closeModal(); renderOrderPanel();
+    if(!duenoLabel) showToast(`${item.emoji} ${item.name}${qty>1?' ×'+qty:''} agregado`);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// CORTESÍAS POR ARTÍCULO (tarjeta de lealtad gratis / cumpleaños 50%)
+// Independiente del sistema de dueños — se elige manualmente, por producto,
+// aunque la orden tenga varios artículos.
+// ══════════════════════════════════════════════════════════════
+function toggleItemCourtesy(id, type) {
+  const it = orderItems.find(i=>i.id===id);
+  if(!it) return;
+  if(it.originalPrice === undefined || it.originalPrice === null) it.originalPrice = it.price;
+  if(it.courtesy === type) {
+    // Ya estaba activa esta cortesía → desactivar y regresar al precio normal
+    it.price = it.originalPrice;
+    it.courtesy = null;
+    showToast(`↩️ Cortesía quitada de ${it.name}`);
+  } else {
+    it.courtesy = type;
+    if(type === 'gratis') {
+      it.price = 0;
+      showToast(`🎁 ${it.name} marcada como bebida gratis (tarjeta de lealtad)`);
+    } else if(type === 'cumple') {
+      it.price = +(it.originalPrice/2).toFixed(2);
+      showToast(`🎂 50% de cumpleaños aplicado a ${it.name}`);
+    }
+  }
   renderOrderPanel();
-  showToast(`${item.emoji} ${item.name}${qty>1?' ×'+qty:''} agregado`);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1136,6 +1732,14 @@ function renderOrderPanel() {
         <div class="order-item-info">
           <div class="order-item-name">${i.name}</div>
           ${i.mods.length?`<div class="order-item-mods">${i.mods.join(' · ')}</div>`:''}
+          ${i.duenoLabel?`<div style="font-size:10px;font-weight:700;color:var(--caramel);margin-top:2px">👑 ${i.duenoLabel}</div>`:''}
+          ${i.courtesy==='gratis'?`<div class="courtesy-tag" style="color:var(--sage)">🎁 Gratis — tarjeta de lealtad</div>`:''}
+          ${i.courtesy==='cumple'?`<div class="courtesy-tag" style="color:#D48AA6">🎂 50% cumpleaños</div>`:''}
+          <div class="courtesy-row">
+            <button class="courtesy-btn ${i.courtesy==='gratis'?'active':''}" onclick="toggleItemCourtesy(${i.id},'gratis')">🎁 Lealtad gratis</button>
+            <button class="courtesy-btn cumple ${i.courtesy==='cumple'?'active':''}" onclick="toggleItemCourtesy(${i.id},'cumple')">🎂 -50% cumple</button>
+          </div>
+          <button class="edit-item-btn" onclick="editOrderItem(${i.id})">✏️ Editar</button>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <div class="order-item-price">$${i.price.toFixed(2)}</div>
@@ -1159,6 +1763,16 @@ function setOrderType(type){
 
 function clearOrder(){
   if(!confirm('¿Cancelar esta orden?')) return;
+  // Si era un dueño, restablecer su estado para no quitarle la bebida gratis
+  if(orderCustomerName && isDueno(orderCustomerName)) {
+    const key = getDuenoKey(orderCustomerName);
+    // Solo revertir si la bebida gratis fue la que se cancela y no hay más items pagados
+    const hadFree = orderItems.some(i=>i.duenoLabel && i.duenoLabel.includes('Gratis'));
+    if(hadFree) {
+      // Revertir: la bebida gratis no fue consumida
+      delete duenoSesion[key];
+    }
+  }
   orderItems=[]; orderCustomerName=''; currentMesa=null;
   document.getElementById('order-notes').value='';
   document.getElementById('order-customer-label').style.display='none';
@@ -1171,6 +1785,8 @@ function clearOrder(){
 // ══════════════════════════════════════════════════════════════
 // RESUMEN DE PAGO
 // ══════════════════════════════════════════════════════════════
+let _pendingOrderForBarista = null; // guardamos la orden antes del cobro
+
 function openPaySummary() {
   if(!orderItems.length){ showToast('Agrega artículos primero'); return; }
   if(orderType==='aqui' && !currentMesa){ showToast('Selecciona una mesa primero'); openMesaSelector(); return; }
@@ -1182,15 +1798,90 @@ function openPaySummary() {
       <div>
         <div>${i.emoji} ${i.name}</div>
         ${i.mods.length?`<div class="pay-summary-mods">${i.mods.join(' · ')}</div>`:''}
+        ${i.duenoLabel?`<div style="font-size:10px;font-weight:700;color:var(--caramel)">👑 ${i.duenoLabel}</div>`:''}
+        ${i.courtesy==='gratis'?`<div style="font-size:10px;font-weight:700;color:var(--sage)">🎁 Gratis — tarjeta de lealtad</div>`:''}
+        ${i.courtesy==='cumple'?`<div style="font-size:10px;font-weight:700;color:#D48AA6">🎂 50% cumpleaños</div>`:''}
       </div>
       <div style="font-weight:700;white-space:nowrap;margin-left:12px">$${i.price.toFixed(2)}</div>
     </div>`).join('');
   document.getElementById('pay-summary-total').textContent = '$'+total.toFixed(2);
+
+  // Ocultar sección de cambio
+  document.getElementById('cash-change-section').style.display = 'none';
+
+  // Botones según tipo de orden
+  const methodBtns = document.getElementById('pay-method-btns');
+  if(orderType === 'aqui') {
+    methodBtns.innerHTML = `<button class="pay-btn" style="grid-column:1/-1;background:var(--sage);color:white;font-size:15px;" onclick="finalizePayment('mesa')">🪑 Enviar a Mesa ${currentMesa} — cobrar después</button>`;
+  } else {
+    methodBtns.innerHTML = `
+      <button class="pay-btn cash"    onclick="chooseCashPayment()">💵 Efectivo</button>
+      <button class="pay-btn digital" onclick="finalizePayment('digital')">💳 Digital</button>`;
+  }
+
+  // Asignar número de orden y ENVIAR AL BARISTA AHORA
+  const now = new Date();
+  const id  = window.orderNumber;
+  const mesa = orderType==='aqui' ? (currentMesa||null) : null;
+  const _isDuenoOrder = orderCustomerName && isDueno(orderCustomerName);
+  _pendingOrderForBarista = {
+    id, items:[...orderItems], type:orderType, paymentMethod:'pending',
+    total, notes:document.getElementById('order-notes').value,
+    customerName: orderCustomerName || '',
+    mesa: mesa,
+    timestamp:now.toISOString(),
+    timeStr:now.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),
+    status:'pending',
+    esDueno: _isDuenoOrder ? true : false,
+    duenoNombre: _isDuenoOrder ? orderCustomerName : null,
+    duenoItems: _isDuenoOrder ? orderItems.filter(i=>i.duenoLabel).map(i=>({name:i.name, label:i.duenoLabel})) : []
+  };
+
+  // Enviar al barista ahora
+  if(window._fbReady) {
+    window._set(window._ref(window._db, `pendingOrders/${id}`), _pendingOrderForBarista);
+  } else {
+    window.pendingOrders.push({..._pendingOrderForBarista});
+    renderBaristaScreen?.();
+  }
+
   document.getElementById('payModal').classList.add('open');
+}
+
+function chooseCashPayment() {
+  // Mostrar sección de efectivo recibido
+  const section = document.getElementById('cash-change-section');
+  section.style.display = 'block';
+  const input = document.getElementById('cash-received-input');
+  input.value = '';
+  document.getElementById('cash-change-display').style.display = 'none';
+  input.focus();
+}
+
+function calcCashChange() {
+  const total = orderItems.reduce((s,i)=>s+i.price,0);
+  const received = parseFloat(document.getElementById('cash-received-input').value)||0;
+  const changeEl = document.getElementById('cash-change-display');
+  const amountEl = document.getElementById('cash-change-amount');
+  if(received >= total) {
+    const cambio = received - total;
+    amountEl.textContent = '$'+cambio.toFixed(2);
+    amountEl.style.color = cambio > 0 ? 'var(--success)' : 'var(--espresso)';
+    changeEl.style.display = 'block';
+    // Mostrar botón confirmar si está oculto
+    document.getElementById('confirm-cash-btn') && (document.getElementById('confirm-cash-btn').style.display='block');
+  } else if(received > 0) {
+    amountEl.textContent = 'Insuficiente';
+    amountEl.style.color = 'var(--danger)';
+    changeEl.style.display = 'block';
+  } else {
+    changeEl.style.display = 'none';
+  }
 }
 
 function finalizePayment(method) {
   document.getElementById('payModal').classList.remove('open');
+  document.getElementById('cash-change-section').style.display = 'none';
   processPayment(method);
 }
 
@@ -1198,51 +1889,54 @@ function finalizePayment(method) {
 // COBRO
 // ══════════════════════════════════════════════════════════════
 function processPayment(method) {
-  if(!orderItems.length){ showToast('Agrega artículos primero'); return; }
-  const total = orderItems.reduce((s,i)=>s+i.price,0);
-  const now   = new Date();
-  const id    = window.orderNumber;
-  const mesa  = orderType==='aqui' ? (currentMesa||null) : null;
-  const order = {
-    id, items:[...orderItems], type:orderType, paymentMethod:method,
-    total, notes:document.getElementById('order-notes').value,
-    customerName: orderCustomerName || '',
-    mesa: mesa,
-    timestamp:now.toISOString(),
-    timeStr:now.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),
-    status:'pending'
-  };
+  if(!orderItems.length && !_pendingOrderForBarista){ showToast('Agrega artículos primero'); return; }
 
-  if(window._fbReady) {
-    window._set(window._ref(window._db, `pendingOrders/${id}`), order);
-    window._set(window._ref(window._db, `salesHistory/${id}`),  order);
-    window._set(window._ref(window._db, 'orderNumber'), id+1);
+  const order = _pendingOrderForBarista || {};
+  const id    = order.id || window.orderNumber;
+  const total = order.total || orderItems.reduce((s,i)=>s+i.price,0);
+  const mesa  = order.mesa || null;
+  const finalOrder = {...order, paymentMethod: method, status:'pending'};
+
+  if(order.type === 'aqui' && mesa) {
+    // PARA AQUÍ: solo guardar en barista (ya hecho en openPaySummary) y agregar a mesa.
+    // NO registrar en salesHistory — eso se hace cuando se cobra en el panel de mesas.
+    if(window._fbReady) {
+      window._update(window._ref(window._db, `pendingOrders/${id}`), {paymentMethod: method});
+      window._set(window._ref(window._db, 'orderNumber'), id+1);
+    } else {
+      const idx = window.pendingOrders.findIndex(o=>o.id===id);
+      if(idx>-1) window.pendingOrders[idx].paymentMethod = method;
+      window.orderNumber = id+1;
+      document.getElementById('order-number').textContent = String(id+1).padStart(3,'0');
+    }
+    addOrderToMesa(mesa, finalOrder);
+    showToast(`🪑 Orden #${String(id).padStart(3,'0')} enviada a Mesa ${mesa} — $${total.toFixed(2)}`);
   } else {
-    window.pendingOrders.push(order);
-    window.salesHistory.push(order);
-    window.orderNumber = id+1;
-    document.getElementById('order-number').textContent = String(id+1).padStart(3,'0');
-  }
-
-  // Si es para aquí, agregar a la mesa
-  if(orderType==='aqui' && currentMesa) {
-    addOrderToMesa(currentMesa, order);
+    // PARA LLEVAR: registrar en barista + ventas inmediatamente
+    if(window._fbReady) {
+      window._update(window._ref(window._db, `pendingOrders/${id}`), {paymentMethod: method});
+      window._set(window._ref(window._db, `salesHistory/${id}`), finalOrder);
+      window._set(window._ref(window._db, 'orderNumber'), id+1);
+    } else {
+      const idx = window.pendingOrders.findIndex(o=>o.id===id);
+      if(idx>-1) window.pendingOrders[idx].paymentMethod = method;
+      window.salesHistory.push(finalOrder);
+      window.orderNumber = id+1;
+      document.getElementById('order-number').textContent = String(id+1).padStart(3,'0');
+    }
+    showToast(`✅ Orden #${String(id).padStart(3,'0')} enviada — $${total.toFixed(2)}`);
   }
 
   window.orderNumber = id+1;
   document.getElementById('order-number').textContent = String(id+1).padStart(3,'0');
-  showToast(`✅ Orden #${String(id).padStart(3,'0')} enviada — $${total.toFixed(2)}`);
+  _pendingOrderForBarista = null;
   orderItems=[]; orderCustomerName=''; currentMesa=null;
   document.getElementById('order-notes').value='';
   document.getElementById('order-customer-label').style.display='none';
-  // Resetear tipo a llevar para evitar abrir mesaModal automáticamente
   orderType='llevar';
   document.getElementById('btn-aqui').classList.remove('active');
   document.getElementById('btn-llevar').classList.add('active');
   renderOrderPanel();
-  const banner = document.getElementById('new-order-banner');
-  banner.classList.add('visible');
-  setTimeout(()=>banner.classList.remove('visible'),3000);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1319,7 +2013,7 @@ window.renderMesasScreen = function renderMesasScreen() {
     const cardClass  = occupied && !paid ? 'mesa-card ocupada' : 'mesa-card';
     const itemsHtml  = items.length ? items.map(i=>`
       <div class="mesa-item-row">
-        <span>${i.emoji||''} ${i.name}${i.mods&&i.mods.length ? ' <small style="color:var(--text-muted)">('+i.mods.join(', ')+')</small>' : ''}</span>
+        <span>${i.emoji||''} ${i.name}${i.mods&&i.mods.length ? ' <small style="color:var(--text-muted)">('+i.mods.join(', ')+')</small>' : ''}${i.courtesy==='gratis'?' <small style="color:var(--sage);font-weight:700">🎁 gratis</small>':''}${i.courtesy==='cumple'?' <small style="color:#D48AA6;font-weight:700">🎂 -50%</small>':''}</span>
         <span style="font-weight:600;white-space:nowrap;margin-left:8px">$${(i.price||0).toFixed(2)}</span>
       </div>`).join('') : `<div class="mesa-empty-msg">Sin consumo</div>`;
     html += `<div class="${cardClass}">
@@ -1331,13 +2025,17 @@ window.renderMesasScreen = function renderMesasScreen() {
         ${itemsHtml}
         ${items.length ? `<div class="mesa-subtotal"><span>Total</span><span>$${total.toFixed(2)}</span></div>` : ''}
       </div>
-      ${occupied && !paid ? `<div class="mesa-card-footer">
-        <button class="mesa-pay-btn mesa-pay-cash"    onclick="payMesa(${m},'cash')">💵 Efectivo</button>
-        <button class="mesa-pay-btn mesa-pay-digital" onclick="payMesa(${m},'digital')">💳 Digital</button>
-        <button class="mesa-free-btn" onclick="clearMesa(${m})" title="Cancelar mesa">🗑</button>
+      ${occupied && !paid ? `<div class="mesa-card-footer" style="flex-direction:column;gap:6px">
+        <button class="mesa-add-btn" onclick="openMesaAddProduct(${m})">＋ Agregar producto a mesa</button>
+        <div style="display:flex;gap:6px;width:100%">
+          <button class="mesa-pay-btn" style="background:var(--caramel);color:white;flex:1" onclick="openMesaCobrarModal(${m})">💰 Cobrar</button>
+          <button class="mesa-free-btn" onclick="clearMesa(${m})" title="Cancelar mesa">🗑</button>
+        </div>
       </div>` : occupied && paid ? `<div class="mesa-card-footer">
         <button class="mesa-free-btn" style="flex:1" onclick="clearMesa(${m})">✓ Liberar mesa</button>
-      </div>` : ''}
+      </div>` : `<div class="mesa-card-footer">
+        <button class="mesa-add-btn" style="width:100%" onclick="openMesaAddProduct(${m})">＋ Agregar primer producto</button>
+      </div>`}
     </div>`;
   }
   grid.innerHTML = html;
@@ -1349,7 +2047,43 @@ function payMesa(mesaNum, method) {
   const items= Array.isArray(st.items) ? st.items : Object.values(st.items||{});
   if(!items.length){ showToast('Mesa sin consumo'); return; }
   const total = items.reduce((s,i)=>s+(i.price||0),0);
-  if(!confirm(`¿Cobrar Mesa ${mesaNum}?\nTotal: $${total.toFixed(2)}\nMétodo: ${method==='cash'?'Efectivo':'Digital'}`)) return;
+
+  if(method==='cash') {
+    const received = parseFloat(prompt(`Mesa ${mesaNum} — Total: $${total.toFixed(2)}\n\n¿Cuánto recibiste?`));
+    if(isNaN(received)) return;
+    if(received < total) { alert('Monto insuficiente'); return; }
+    const cambio = received - total;
+    if(cambio > 0) alert(`Cambio a regresar: $${cambio.toFixed(2)}`);
+  } else {
+    if(!confirm(`¿Cobrar Mesa ${mesaNum}?\nTotal: $${total.toFixed(2)}\nMétodo: Digital`)) return;
+  }
+
+  // Registrar en ventas
+  const now = new Date();
+  const orderId = window.orderNumber;
+  const saleOrder = {
+    id: orderId,
+    items: items,
+    type: 'aqui',
+    paymentMethod: method,
+    total: total,
+    notes: '',
+    customerName: '',
+    mesa: mesaNum,
+    timestamp: now.toISOString(),
+    timeStr: now.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),
+    status: 'done'
+  };
+  if(window._fbReady) {
+    window._set(window._ref(window._db, `salesHistory/${orderId}`), saleOrder);
+    window._set(window._ref(window._db, 'orderNumber'), orderId+1);
+  } else {
+    window.salesHistory.push(saleOrder);
+    window.orderNumber = orderId+1;
+  }
+  window.orderNumber = orderId+1;
+  document.getElementById('order-number').textContent = String(orderId+1).padStart(3,'0');
+
   window.mesasState[key].paid = true;
   saveMesasToFirebase();
   window.renderMesasScreen();
@@ -1362,6 +2096,421 @@ function clearMesa(mesaNum) {
   saveMesasToFirebase();
   window.renderMesasScreen();
   showToast(`🪑 Mesa ${mesaNum} liberada`);
+}
+
+// ══════════════════════════════════════════════════════════════
+// COBRAR MESA — modal unificado / separado
+// ══════════════════════════════════════════════════════════════
+let _cobrarMesaNum   = null;
+let _cobrarModo      = 'unificado'; // 'unificado' | 'separado'
+let _cobrarPersonas  = [];          // [{name, items:[], method:''}]
+
+function openMesaCobrarModal(mesaNum) {
+  const key  = 'mesa' + mesaNum;
+  const st   = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+  if (!items.length) { showToast('Mesa sin consumo'); return; }
+
+  _cobrarMesaNum  = mesaNum;
+  _cobrarModo     = 'unificado';
+  _cobrarPersonas = [{ name: 'Todos', items: items.map((_,i) => i), method: '' }];
+
+  const total = items.reduce((s, i) => s + (i.price || 0), 0);
+  document.getElementById('mesa-cobrar-title').textContent = `💰 Cobrar Mesa ${mesaNum}`;
+  document.getElementById('mesa-cobrar-subtitle').textContent =
+    `${items.length} producto${items.length !== 1 ? 's' : ''} · Total $${total.toFixed(2)}`;
+
+  setCobrarModo('unificado');
+  document.getElementById('mesaCobrarModal').classList.add('open');
+}
+
+function setCobrarModo(modo) {
+  _cobrarModo = modo;
+  const btnU = document.getElementById('cobrar-modo-unificado');
+  const btnS = document.getElementById('cobrar-modo-separado');
+  btnU.style.background = modo === 'unificado' ? 'var(--caramel)' : 'white';
+  btnU.style.color       = modo === 'unificado' ? 'white' : 'var(--caramel)';
+  btnS.style.background  = modo === 'separado'  ? 'var(--caramel)' : 'white';
+  btnS.style.color        = modo === 'separado'  ? 'white' : 'var(--caramel)';
+
+  if (modo === 'unificado') renderCobrarUnificado();
+  else                       renderCobrarSeparado();
+}
+
+/* ── MODO UNIFICADO ── */
+function renderCobrarUnificado() {
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+  const total = items.reduce((s, i) => s + (i.price || 0), 0);
+
+  const body = document.getElementById('mesa-cobrar-body');
+  body.innerHTML = `
+    <div style="background:var(--cream-dark);border-radius:10px;overflow:hidden;margin-bottom:14px;">
+      ${items.map(i => `
+        <div style="display:flex;justify-content:space-between;padding:9px 13px;border-bottom:1px solid var(--border);font-size:13px;">
+          <span>${i.emoji || '☕'} ${i.name}${i.mods && i.mods.length ? ' <small style="color:var(--text-muted)">('+i.mods.join(', ')+')</small>' : ''}${i.courtesy==='gratis'?' <small style="color:var(--sage);font-weight:700">🎁 gratis</small>':''}${i.courtesy==='cumple'?' <small style="color:#D48AA6;font-weight:700">🎂 -50%</small>':''}</span>
+          <span style="font-weight:700;margin-left:8px">$${(i.price||0).toFixed(2)}</span>
+        </div>`).join('')}
+      <div style="display:flex;justify-content:space-between;padding:11px 13px;font-size:16px;font-weight:700;color:var(--espresso);">
+        <span>Total</span><span>$${total.toFixed(2)}</span>
+      </div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:9px;">Método de pago</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+      <button class="pay-btn cash" onclick="cobrarUnificado('cash')">💵 Efectivo</button>
+      <button class="pay-btn digital" onclick="cobrarUnificado('digital')">💳 Digital</button>
+    </div>`;
+}
+
+function cobrarUnificado(method) {
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+  const total = items.reduce((s, i) => s + (i.price || 0), 0);
+
+  if (method === 'cash') {
+    const received = parseFloat(prompt(`Mesa ${_cobrarMesaNum} — Total: $${total.toFixed(2)}\n\n¿Cuánto recibiste?`));
+    if (isNaN(received)) return;
+    if (received < total) { alert('Monto insuficiente'); return; }
+    const cambio = received - total;
+    if (cambio > 0) alert(`Cambio a regresar: $${cambio.toFixed(2)}`);
+  } else {
+    if (!confirm(`¿Cobrar Mesa ${_cobrarMesaNum}?\nTotal: $${total.toFixed(2)}\nMétodo: Digital`)) return;
+  }
+
+  _registrarVentaMesa(_cobrarMesaNum, items, total, method);
+  window.mesasState[key].paid = true;
+  saveMesasToFirebase();
+  window.renderMesasScreen();
+  document.getElementById('mesaCobrarModal').classList.remove('open');
+  showToast(`✅ Mesa ${_cobrarMesaNum} pagada — $${total.toFixed(2)} (${method === 'cash' ? 'Efectivo' : 'Digital'})`);
+}
+
+/* ── MODO SEPARADO ── */
+function renderCobrarSeparado() {
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+
+  // Aseguramos que _cobrarPersonas tenga al menos una persona con todos los ítems sueltos
+  if (_cobrarPersonas.length === 0 || _cobrarPersonas[0].name === 'Todos') {
+    _cobrarPersonas = [{ name: 'Persona 1', items: items.map((_, i) => i), method: '' }];
+  }
+
+  _renderSeparadoUI(items);
+}
+
+function _renderSeparadoUI(items) {
+  const body = document.getElementById('mesa-cobrar-body');
+  // Calcular qué ítems ya están asignados
+  const assigned = new Set(_cobrarPersonas.flatMap(p => p.items));
+  const unassigned = items.map((_, i) => i).filter(i => !assigned.has(i));
+
+  let html = '';
+
+  // Personas
+  _cobrarPersonas.forEach((persona, pi) => {
+    const subtotal = persona.items.reduce((s, idx) => s + (items[idx]?.price || 0), 0);
+    const methodLabel = persona.method === 'cash' ? '💵 Efectivo' : persona.method === 'digital' ? '💳 Digital' : '';
+    html += `
+      <div style="background:white;border:1.5px solid var(--caramel);border-radius:12px;margin-bottom:12px;overflow:hidden;">
+        <div style="padding:10px 14px;background:var(--caramel-pale);display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <input value="${persona.name}"
+            onchange="renameCobrarPersona(${pi}, this.value)"
+            style="font-size:14px;font-weight:700;color:var(--espresso);border:none;background:transparent;outline:none;flex:1;font-family:'DM Sans',sans-serif;">
+          ${_cobrarPersonas.length > 1 ? `<button onclick="removeCobrarPersona(${pi})" style="width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border);background:white;cursor:pointer;font-size:12px;color:var(--danger);font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">×</button>` : ''}
+        </div>
+        <div style="padding:8px 14px;">
+          ${persona.items.length === 0
+            ? `<div style="font-size:12px;color:var(--text-muted);padding:4px 0;">Sin productos asignados</div>`
+            : persona.items.map(idx => {
+                const it = items[idx];
+                return `<div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:4px 0;gap:6px;">
+                  <span style="flex:1">${it.emoji||'☕'} ${it.name}</span>
+                  <span style="font-weight:700;white-space:nowrap">$${(it.price||0).toFixed(2)}</span>
+                  <button onclick="unassignItemSeparado(${pi},${idx})"
+                    style="width:18px;height:18px;border-radius:50%;border:1px solid var(--border);background:white;cursor:pointer;font-size:11px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;flex-shrink:0;"
+                    title="Quitar">−</button>
+                </div>`;
+              }).join('')}
+          ${subtotal > 0 ? `<div style="font-size:13px;font-weight:700;color:var(--espresso);padding-top:6px;margin-top:4px;border-top:1px solid var(--border);display:flex;justify-content:space-between;"><span>Subtotal</span><span>$${subtotal.toFixed(2)}</span></div>` : ''}
+        </div>
+        <div style="padding:8px 14px;border-top:1px solid var(--border);display:flex;gap:6px;align-items:center;">
+          <span style="font-size:11px;color:var(--text-muted);font-weight:600;flex-shrink:0;">Pago:</span>
+          <button onclick="setCobrarPersonaMethod(${pi},'cash')"
+            style="flex:1;padding:6px;border-radius:6px;border:1.5px solid ${persona.method==='cash'?'var(--success)':'var(--border)'};background:${persona.method==='cash'?'#E8F4EA':'white'};font-size:12px;font-weight:700;cursor:pointer;color:${persona.method==='cash'?'var(--success)':'var(--text-muted)'};font-family:'DM Sans',sans-serif;">
+            💵 Efectivo
+          </button>
+          <button onclick="setCobrarPersonaMethod(${pi},'digital')"
+            style="flex:1;padding:6px;border-radius:6px;border:1.5px solid ${persona.method==='digital'?'var(--espresso)':'var(--border)'};background:${persona.method==='digital'?'var(--espresso)':'white'};font-size:12px;font-weight:700;cursor:pointer;color:${persona.method==='digital'?'white':'var(--text-muted)'};font-family:'DM Sans',sans-serif;">
+            💳 Digital
+          </button>
+        </div>
+      </div>`;
+  });
+
+  // Productos sin asignar
+  if (unassigned.length) {
+    html += `<div style="background:var(--cream-dark);border-radius:10px;padding:10px 14px;margin-bottom:12px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;">Sin asignar — toca para agregar a una persona</div>
+      ${unassigned.map(idx => {
+        const it = items[idx];
+        return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;">
+          <span style="flex:1">${it.emoji||'☕'} ${it.name}</span>
+          <span style="font-weight:700;white-space:nowrap">$${(it.price||0).toFixed(2)}</span>
+          ${_cobrarPersonas.map((p, pi) =>
+            `<button onclick="assignItemSeparado(${pi},${idx})"
+              style="padding:4px 8px;border-radius:6px;border:1.5px solid var(--caramel);background:white;cursor:pointer;font-size:11px;font-weight:700;color:var(--caramel);font-family:'DM Sans',sans-serif;white-space:nowrap;"
+              title="Asignar a ${p.name}">→ ${p.name.split(' ')[0]||'P'+(pi+1)}</button>`
+          ).join('')}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  // Botones acción
+  const allAssigned = unassigned.length === 0;
+  const allHaveMethod = _cobrarPersonas.every(p => p.items.length === 0 || p.method !== '');
+  html += `
+    <button onclick="addCobrarPersona()"
+      style="width:100%;padding:9px;border-radius:var(--radius-sm);border:1.5px dashed var(--caramel);background:transparent;color:var(--caramel);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px;">
+      ＋ Agregar persona
+    </button>`;
+
+  if (allAssigned && allHaveMethod) {
+    html += `
+      <button onclick="cobrarSeparado()"
+        style="width:100%;padding:12px;border-radius:var(--radius-sm);border:none;background:var(--success);color:white;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">
+        ✅ Confirmar cobros separados
+      </button>`;
+  } else {
+    html += `<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:6px 0;">
+      ${!allAssigned ? '⚠️ Asigna todos los productos' : '⚠️ Selecciona método de pago para cada persona'}
+    </div>`;
+  }
+
+  body.innerHTML = html;
+}
+
+function renameCobrarPersona(pi, name) {
+  _cobrarPersonas[pi].name = name || `Persona ${pi + 1}`;
+}
+
+function addCobrarPersona() {
+  _cobrarPersonas.push({ name: `Persona ${_cobrarPersonas.length + 1}`, items: [], method: '' });
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+  _renderSeparadoUI(items);
+}
+
+function removeCobrarPersona(pi) {
+  const freed = _cobrarPersonas[pi].items;
+  _cobrarPersonas.splice(pi, 1);
+  if (_cobrarPersonas.length === 0) {
+    _cobrarPersonas.push({ name: 'Persona 1', items: [], method: '' });
+  }
+  // Devolver ítems liberados a la primera persona o dejarlos sin asignar
+  // (quedarán en "Sin asignar" automáticamente)
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+  _renderSeparadoUI(items);
+}
+
+function assignItemSeparado(pi, itemIdx) {
+  // Quitar de cualquier otra persona primero
+  _cobrarPersonas.forEach(p => { p.items = p.items.filter(i => i !== itemIdx); });
+  _cobrarPersonas[pi].items.push(itemIdx);
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+  _renderSeparadoUI(items);
+}
+
+function unassignItemSeparado(pi, itemIdx) {
+  _cobrarPersonas[pi].items = _cobrarPersonas[pi].items.filter(i => i !== itemIdx);
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+  _renderSeparadoUI(items);
+}
+
+function setCobrarPersonaMethod(pi, method) {
+  _cobrarPersonas[pi].method = method;
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+  _renderSeparadoUI(items);
+}
+
+function cobrarSeparado() {
+  const key   = 'mesa' + _cobrarMesaNum;
+  const st    = window.mesasState[key];
+  const items = Array.isArray(st.items) ? st.items : Object.values(st.items || {});
+
+  // Confirmar efectivo si alguno paga en cash
+  for (const persona of _cobrarPersonas) {
+    if (!persona.items.length) continue;
+    const subtotal = persona.items.reduce((s, idx) => s + (items[idx]?.price || 0), 0);
+    if (persona.method === 'cash') {
+      const received = parseFloat(prompt(`${persona.name} — Subtotal: $${subtotal.toFixed(2)}\n¿Cuánto recibiste?`));
+      if (isNaN(received)) return;
+      if (received < subtotal) { alert(`Monto insuficiente para ${persona.name}`); return; }
+      const cambio = received - subtotal;
+      if (cambio > 0) alert(`Cambio para ${persona.name}: $${cambio.toFixed(2)}`);
+    }
+  }
+
+  // Registrar cada cobro por separado en el historial
+  _cobrarPersonas.forEach(persona => {
+    if (!persona.items.length) return;
+    const subItems = persona.items.map(idx => items[idx]);
+    const subtotal = subItems.reduce((s, i) => s + (i?.price || 0), 0);
+    _registrarVentaMesa(_cobrarMesaNum, subItems, subtotal, persona.method, persona.name);
+  });
+
+  window.mesasState[key].paid = true;
+  saveMesasToFirebase();
+  window.renderMesasScreen();
+  document.getElementById('mesaCobrarModal').classList.remove('open');
+  showToast(`✅ Mesa ${_cobrarMesaNum} — ${_cobrarPersonas.filter(p=>p.items.length).length} cobros registrados`);
+}
+
+/* ── Helper compartido: registrar venta en Firebase ── */
+function _registrarVentaMesa(mesaNum, items, total, method, clienteName) {
+  const now     = new Date();
+  const orderId = window.orderNumber;
+  const saleOrder = {
+    id: orderId,
+    items: items,
+    type: 'aqui',
+    paymentMethod: method,
+    total: total,
+    notes: '',
+    customerName: clienteName || '',
+    mesa: mesaNum,
+    timestamp: now.toISOString(),
+    timeStr: now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+    status: 'done'
+  };
+  if (window._fbReady) {
+    window._set(window._ref(window._db, `salesHistory/${orderId}`), saleOrder);
+    window._set(window._ref(window._db, 'orderNumber'), orderId + 1);
+  } else {
+    window.salesHistory.push(saleOrder);
+    window.orderNumber = orderId + 1;
+  }
+  window.orderNumber = orderId + 1;
+  document.getElementById('order-number').textContent = String(orderId + 1).padStart(3, '0');
+}
+
+// ── Agregar producto directamente a una mesa ──
+let _mesaAddTarget = null;
+
+function openMesaAddProduct(mesaNum) {
+  _mesaAddTarget = mesaNum;
+  const el = document.getElementById('mesa-add-title');
+  if(el) el.textContent = `➕ Agregar a Mesa ${mesaNum}`;
+  const search = document.getElementById('mesa-add-search');
+  if(search) search.value = '';
+  renderMesaProductList();
+  document.getElementById('mesaAddModal').classList.add('open');
+}
+
+function renderMesaProductList() {
+  const q = (document.getElementById('mesa-add-search')?.value||'').toLowerCase();
+  const list = document.getElementById('mesa-add-product-list');
+  if(!list) return;
+  const items = menuItems.filter(i=>i.active && (!q || i.name.toLowerCase().includes(q)));
+  if(!items.length) { list.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0">No se encontraron productos</p>'; return; }
+  list.innerHTML = items.map(i=>`
+    <button onclick="selectMesaProduct(${i.id})"
+      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:1.5px solid var(--caramel);background:white;cursor:pointer;font-family:'DM Sans',sans-serif;width:100%;text-align:left;margin-bottom:6px;transition:all 0.15s"
+      onmouseover="this.style.background='var(--caramel-pale)'" onmouseout="this.style.background='white'">
+      <span style="font-size:22px">${i.emoji}</span>
+      <span style="flex:1;font-size:14px;font-weight:600;color:var(--text-main)">${i.name}</span>
+      <span style="font-size:14px;font-weight:700;color:var(--caramel)">$${i.price.toFixed(2)}</span>
+    </button>`).join('');
+}
+
+function selectMesaProduct(itemId) {
+  const mesaNum = _mesaAddTarget;
+  const item = menuItems.find(i=>i.id===itemId);
+  if(!item || !mesaNum) return;
+  document.getElementById('mesaAddModal').classList.remove('open');
+
+  const opts = item.options||{};
+  const secs = [];
+  if(opts.temp)      secs.push({key:'temp',      label:'Temperatura',   options:opts.temp});
+  if(opts.milk)      secs.push({key:'milk',      label:'Tipo de leche', options:opts.milk});
+  if(opts.flavor)    secs.push({key:'flavor',    label:'Sabor extra',   options:opts.flavor});
+  if(opts.extraShot) secs.push({key:'extraShot', label:'Extra shot',    options:opts.extraShot});
+  if(opts.extraFoam) secs.push({key:'extraFoam', label:'Extra foam',    options:opts.extraFoam});
+
+  if(secs.length) {
+    // Abrir modal de personalización con destino = mesa
+    pendingModal = {item, selections:{}, qty:1, addToMesaDirect: mesaNum};
+    if(opts.temp)      pendingModal.selections.temp      = opts.temp[0];
+    if(opts.milk)      pendingModal.selections.milk      = opts.milk[0];
+    if(opts.flavor)    pendingModal.selections.flavor    = opts.flavor[0];
+    if(opts.extraShot) pendingModal.selections.extraShot = opts.extraShot[0];
+    if(opts.extraFoam) pendingModal.selections.extraFoam = opts.extraFoam[0];
+    document.getElementById('modal-item-name').textContent  = item.emoji+' '+item.name;
+    document.getElementById('modal-item-price').textContent = '$'+item.price.toFixed(2);
+
+    let html = `<div class="modal-section" style="display:none"><span id="modal-qty">1</span></div>`;
+    secs.forEach(s => {
+      html += `<div class="modal-section"><div class="modal-section-title">${s.label}</div><div class="option-chips">
+        ${s.options.map(opt=>
+          `<div class="${pendingModal.selections[s.key]===opt?'chip selected':'chip'}" data-key="${s.key}" data-val="${opt.replace(/"/g,'&quot;')}" onclick="selectChip(this)">${opt}</div>`
+        ).join('')}
+      </div></div>`;
+    });
+    document.getElementById('modal-options').innerHTML = html;
+    document.getElementById('btn-add').textContent = '+ Agregar a mesa';
+    document.getElementById('customModal').classList.add('open');
+  } else {
+    _commitAddToMesa(item, [], mesaNum);
+  }
+}
+
+function _commitAddToMesa(item, mods, mesaNum) {
+  const key = 'mesa'+mesaNum;
+  if(!window.mesasState[key]) window.mesasState[key] = {items:[], paid:false};
+  const entry = {id:item.id, name:item.name, emoji:item.emoji||'☕', price:item.price, mods:mods||[], orderId:'direct-'+Date.now()};
+  window.mesasState[key].items.push(entry);
+  saveMesasToFirebase();
+  window.renderMesasScreen();
+  showToast(`${item.emoji||'☕'} ${item.name} agregado a Mesa ${mesaNum} · $${item.price.toFixed(2)}`);
+
+  // Solo enviar al barista (NO registrar en ventas — eso se hace al cobrar)
+  const now = new Date();
+  const orderId = window.orderNumber;
+  const baristaOrder = {
+    id: orderId,
+    items: [entry],
+    type: 'aqui',
+    paymentMethod: '',
+    total: item.price,
+    notes: '',
+    customerName: '',
+    mesa: mesaNum,
+    timestamp: now.toISOString(),
+    timeStr: now.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),
+    status: 'pending'
+  };
+  if(window._fbReady) {
+    window._set(window._ref(window._db, `pendingOrders/${orderId}`), baristaOrder);
+    window._set(window._ref(window._db, 'orderNumber'), orderId+1);
+  } else {
+    window.pendingOrders.push(baristaOrder);
+    window.orderNumber = orderId+1;
+    document.getElementById('order-number').textContent = String(orderId+1).padStart(3,'0');
+  }
+  window.orderNumber = orderId+1;
+  document.getElementById('order-number').textContent = String(orderId+1).padStart(3,'0');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1583,30 +2732,89 @@ window.renderStats = function(){
   document.getElementById('kpi-digital').textContent      ='$'+digital.toLocaleString('es-MX',{maximumFractionDigits:0});
   document.getElementById('kpi-digital-count').textContent=digS.length+' venta'+(digS.length!==1?'s':'');
   document.getElementById('kpi-avg').textContent          ='$'+avg.toFixed(0);
+
+  // ── Salidas del período (misma ventana temporal que las ventas) ──
+  const now2 = new Date();
+  const salidaPeriod = (window.flujoEfectivo||[]).filter(m => {
+    const d = new Date(m.timestamp);
+    if(activePeriod==='custom'&&customDateFrom) return d>=customDateFrom&&d<=customDateTo;
+    if(activePeriod==='hoy')    return d.toDateString()===now2.toDateString();
+    if(activePeriod==='semana') return (now2-d)/86400000<=7;
+    if(activePeriod==='mes')    return d.getMonth()===now2.getMonth()&&d.getFullYear()===now2.getFullYear();
+    return true;
+  });
+  const totSal     = salidaPeriod.reduce((a,m)=>a+m.monto,0);
+  const salCash    = salidaPeriod.filter(m=>m.paymentMethod==='cash').reduce((a,m)=>a+m.monto,0);
+  const salDigital = salidaPeriod.filter(m=>m.paymentMethod==='digital').reduce((a,m)=>a+m.monto,0);
+  const netoTotal  = total  - totSal;
+  const netoCash   = cash   - salCash;
+  const netoDigital= digital- salDigital;
+
+  const block = document.getElementById('resumen-neto-block');
+  const emptyEl = document.getElementById('resumen-salidas-empty');
+  if(block) {
+    if(salidaPeriod.length) {
+      block.style.display = 'grid';
+      if(emptyEl) emptyEl.style.display = 'none';
+      document.getElementById('res-salidas-total').textContent   = '-$'+totSal.toLocaleString('es-MX',{minimumFractionDigits:0});
+      document.getElementById('res-salidas-cash').textContent    = '-$'+salCash.toLocaleString('es-MX',{minimumFractionDigits:0});
+      document.getElementById('res-salidas-digital').textContent = '-$'+salDigital.toLocaleString('es-MX',{minimumFractionDigits:0});
+      const resList = document.getElementById('resumen-salidas-list');
+      if(resList) resList.innerHTML = [...salidaPeriod].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).map(m=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--cream);border-radius:8px;font-size:12px;">
+          <span style="font-size:14px">⬇️</span>
+          <span style="flex:1;font-weight:500;color:var(--text-main)">${m.desc}</span>
+          <span style="font-size:10px;padding:2px 7px;border-radius:8px;background:${m.paymentMethod==='cash'?'#E8F4EA':'#E6EFF9'};color:${m.paymentMethod==='cash'?'var(--success)':'#1A5FAD'};font-weight:700">${m.paymentMethod==='cash'?'Efectivo':'Digital'}</span>
+          <span style="font-size:10px;color:var(--text-muted)">${m.dateStr} ${m.timeStr}</span>
+          <span style="font-weight:700;color:var(--danger)">-$${m.monto.toFixed(2)}</span>
+          <button onclick="deleteFlujoMovimiento('${m.id}')" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border);background:transparent;cursor:pointer;font-size:12px;color:var(--text-muted);flex-shrink:0;" onmouseover="this.style.color='var(--danger)';this.style.borderColor='var(--danger)'" onmouseout="this.style.color='var(--text-muted)';this.style.borderColor='var(--border)'">×</button>
+        </div>`).join('');
+      const fmt = v => (v<0?'-$':'$')+Math.abs(v).toLocaleString('es-MX',{minimumFractionDigits:0});
+      document.getElementById('res-neto').textContent         = fmt(netoTotal);
+      document.getElementById('res-neto').style.color         = netoTotal>=0?'#FFD97D':'#f08080';
+      document.getElementById('res-neto-cash').textContent    = fmt(netoCash);
+      document.getElementById('res-neto-cash').style.color    = netoCash>=0?'var(--espresso)':'var(--danger)';
+      document.getElementById('res-neto-digital').textContent = fmt(netoDigital);
+      document.getElementById('res-neto-digital').style.color = netoDigital>=0?'var(--espresso)':'var(--danger)';
+    } else {
+      block.style.display = 'none';
+      if(emptyEl) emptyEl.style.display = 'block';
+    }
+  }
+
   document.getElementById('sales-tbody').innerHTML=
-    [...sales].reverse().map(s=>`<tr>
+    [...sales].reverse().map(s=>{
+      const duenoCol = s.esDueno
+        ? `<td style="white-space:nowrap">
+            <div style="font-weight:700;color:var(--caramel)">👑 ${s.duenoNombre}</div>
+            ${(s.duenoItems||[]).map(d=>`<div style="font-size:10px;color:var(--text-muted)">${d.name}: <b>${d.label}</b></div>`).join('')}
+           </td>`
+        : '<td style="color:var(--text-muted);font-size:12px">—</td>';
+      return `<tr>
       <td><input type="checkbox" class="sale-checkbox" data-id="${s.id}" style="cursor:pointer"></td>
       <td style="font-weight:700">#${String(s.id).padStart(3,'0')}</td>
       <td>${s.timeStr}</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.items.map(i=>i.emoji+' '+i.name).join(', ')}</td>
       <td><span class="pay-tag ${s.type==='aqui'?'pay-aqui':'pay-llevar'}">${s.type==='aqui'?'Para aquí':'Para llevar'}</span></td>
       <td><span class="pay-tag ${s.paymentMethod==='cash'?'pay-cash':'pay-digital'}">${s.paymentMethod==='cash'?'💵 Efectivo':'💳 Digital'}</span></td>
-      <td style="font-weight:700">$${s.total.toFixed(2)}</td>
-    </tr>`).join('')||`<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-muted)">No hay ventas en este período</td></tr>`;
+      <td style="font-weight:700" class="fig">$${s.total.toFixed(2)}</td>
+      ${duenoCol}
+    </tr>`;}).join('')||`<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">No hay ventas en este período</td></tr>`;
 };
 
 function renderCharts(){
   const sales=getFilteredSales();
   const hours={};
-  for(let h=6;h<=22;h++) hours[h]=0;
-  sales.forEach(s=>{ const h=new Date(s.timestamp).getHours(); if(hours[h]!==undefined) hours[h]+=s.total; });
+  const hourCount={};
+  for(let h=6;h<=22;h++) { hours[h]=0; hourCount[h]=0; }
+  sales.forEach(s=>{ const h=new Date(s.timestamp).getHours(); if(hours[h]!==undefined){ hours[h]+=s.total; hourCount[h]++; } });
   const ctx1=document.getElementById('hourly-chart');
   if(!ctx1) return;
   if(hourlyChart) hourlyChart.destroy();
   hourlyChart=new Chart(ctx1,{
     type:'bar',
     data:{labels:Object.keys(hours).map(h=>h+':00'),datasets:[{label:'Ventas ($)',data:Object.values(hours),backgroundColor:'#C07840',borderRadius:6,borderSkipped:false}]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'#F0EBE0'},ticks:{font:{size:11},callback:v=>'$'+v}}}}
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{afterLabel:function(ctx){const h=parseInt(ctx.label);const cnt=hourCount[h]||0;return cnt+' transacción'+(cnt!==1?'es':'');}}}},scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'#F0EBE0'},ticks:{font:{size:11},callback:v=>'$'+v}}}}
   });
   const cT=sales.filter(s=>s.paymentMethod==='cash').reduce((a,s)=>a+s.total,0);
   const dT=sales.filter(s=>s.paymentMethod==='digital').reduce((a,s)=>a+s.total,0);
@@ -1633,14 +2841,15 @@ function renderCharts(){
 // EXPORTAR
 // ══════════════════════════════════════════════════════════════
 function exportExcel(){
+  if(!statsUnlocked){ showToast('🔒 Muestra las cifras con el PIN antes de exportar'); return; }
   const sales=getFilteredSales();
   if(!sales.length){showToast('No hay ventas para exportar');return;}
   const cashT=sales.filter(s=>s.paymentMethod==='cash').reduce((a,s)=>a+s.total,0);
   const digT =sales.filter(s=>s.paymentMethod==='digital').reduce((a,s)=>a+s.total,0);
   const tot  =sales.reduce((a,s)=>a+s.total,0);
   const rows=[
-    ['#','Fecha','Hora','Artículos','Tipo','Pago','Total'],
-    ...sales.map(s=>['#'+String(s.id).padStart(3,'0'),new Date(s.timestamp).toLocaleDateString('es-MX'),s.timeStr,s.items.map(i=>i.name).join(', '),s.type==='aqui'?'Para aquí':'Para llevar',s.paymentMethod==='cash'?'Efectivo':'Digital',s.total]),
+    ['#','Fecha','Hora','Artículos','Tipo','Pago','Total','Dueño','Beneficio'],
+    ...sales.map(s=>{const _dl=s.esDueno&&s.duenoItems?s.duenoItems.map(d=>d.name+': '+d.label).join(' / '):'';return['#'+String(s.id).padStart(3,'0'),new Date(s.timestamp).toLocaleDateString('es-MX'),s.timeStr,s.items.map(i=>i.name).join(', '),s.type==='aqui'?'Para aqui':'Para llevar',s.paymentMethod==='cash'?'Efectivo':'Digital',s.total,s.esDueno?s.duenoNombre:'',_dl];}),
     [],
     ['','','','','','TOTAL EFECTIVO:',cashT],
     ['','','','','','TOTAL DIGITAL:',digT],
@@ -1655,15 +2864,16 @@ function exportExcel(){
 }
 
 function exportPDF(){
+  if(!statsUnlocked){ showToast('🔒 Muestra las cifras con el PIN antes de exportar'); return; }
   const sales=getFilteredSales();
   if(!sales.length){showToast('No hay ventas para exportar');return;}
   const cashT=sales.filter(s=>s.paymentMethod==='cash').reduce((a,s)=>a+s.total,0);
   const digT =sales.filter(s=>s.paymentMethod==='digital').reduce((a,s)=>a+s.total,0);
   const tot  =sales.reduce((a,s)=>a+s.total,0);
   const lbl  =activePeriod==='hoy'?'Hoy':activePeriod==='semana'?'Esta semana':activePeriod==='mes'?'Este mes':'Todo el historial';
-  const rows =[...sales].reverse().map(s=>`<tr><td>#${String(s.id).padStart(3,'0')}</td><td>${new Date(s.timestamp).toLocaleDateString('es-MX')}</td><td>${s.timeStr}</td><td>${s.items.map(i=>i.name).join(', ')}</td><td>${s.type==='aqui'?'Para aquí':'Para llevar'}</td><td>${s.paymentMethod==='cash'?'Efectivo':'Digital'}</td><td style="text-align:right;font-weight:700">$${s.total.toFixed(2)}</td></tr>`).join('');
+  const rows=[...sales].reverse().map(s=>`<tr><td>#${String(s.id).padStart(3,'0')}</td><td>${new Date(s.timestamp).toLocaleDateString('es-MX')}</td><td>${s.timeStr}</td><td>${s.items.map(i=>i.name).join(', ')}</td><td>${s.type==='aqui'?'Para aquí':'Para llevar'}</td><td>${s.paymentMethod==='cash'?'Efectivo':'Digital'}</td><td style="text-align:right;font-weight:700">$${s.total.toFixed(2)}</td></tr>`).join('');
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Druppa Ventas</title>
-  <style>body{font-family:Arial,sans-serif;padding:24px;color:#2C1A0E;font-size:12px}h1{font-size:22px;margin-bottom:4px}.sub{color:#8A7060;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{background:#2C1A0E;color:white;padding:8px;text-align:left;font-size:11px}td{padding:7px 8px;border-bottom:1px solid #E0D4C0}tr:nth-child(even) td{background:#FAF7F2}.totals{margin-top:20px;border-top:2px solid #C07840;padding-top:16px;text-align:right}.totals p{margin:4px 0;font-size:13px}.grand{font-size:18px;font-weight:700;margin-top:8px}.cash{color:#4A7C59;font-weight:700}.dig{color:#1A5FAD;font-weight:700}</style>
+  <style>body{font-family:Arial,sans-serif;padding:24px;color:#2C1A0E;font-size:12px}h1{font-size:22px;margin-bottom:4px}.sub{color:#8A7060;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{background:#2C1A0E;color:white;padding:8px;text-align:left;font-size:11px}td{padding:7px 8px;border-bottom:1px solid #E0D4C0}tr:nth-child(even) td{background:#FAF7F2}.totals{margin-top:20px;border-top:2px solid #C07840;padding-top:16px;text-align:right}.totals p{margin:4px 0;font-size:13px}.grand{font-size:18px;font-weight:700;margin-top:8px}.cash{color:#4A7C59;font-weight:700}.dig{color:#1A5FAD;font-weight:700}@media print{body{padding:14px;}}</style>
   </head><body><h1>☕ Druppa — Reporte de Ventas</h1>
   <div class="sub">Período: ${lbl} · ${sales.length} transacciones · ${new Date().toLocaleString('es-MX')}</div>
   <table><thead><tr><th>#</th><th>Fecha</th><th>Hora</th><th>Artículos</th><th>Tipo</th><th>Pago</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
@@ -1672,6 +2882,140 @@ function exportPDF(){
   const w=window.open(URL.createObjectURL(new Blob([html],{type:'text/html'})),'_blank');
   if(!w) showToast('Permite ventanas emergentes para exportar PDF');
   else   showToast('📄 Abriendo reporte PDF…');
+}
+
+// ── PDF con los dos cortes del día ──
+function exportPDFCortes() {
+  if(!statsUnlocked){ showToast('🔒 Muestra las cifras con el PIN antes de exportar'); return; }
+  const tod = new Date().toDateString();
+  const todLabel = new Date().toLocaleDateString('es-MX', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+
+  // Horarios de corte para hoy
+  const hoy = new Date();
+  const cut1 = new Date(hoy); cut1.setHours(7,  0, 0, 0);  // inicio jornada 7 AM
+  const cut2 = new Date(hoy); cut2.setHours(14,30, 0, 0);  // corte 1: 2:30 PM
+  const cut3 = new Date(hoy); cut3.setHours(21, 0, 0, 0);  // corte 2: 9:00 PM
+
+  // Si hay cortes manuales/automáticos registrados hoy, usarlos
+  const tCuts = (window.cuts||[]).filter(c=>c.date===tod).sort((a,b)=>new Date(a.cutAt)-new Date(b.cutAt));
+  let manana_from = cut1, manana_to = cut2, tarde_from = cut2, tarde_to = cut3;
+  if (tCuts.length >= 1) { manana_to = new Date(tCuts[0].cutAt); tarde_from = new Date(tCuts[0].cutAt); }
+  if (tCuts.length >= 2) { tarde_to  = new Date(tCuts[1].cutAt); }
+
+  const allTodaySales = (window.salesHistory||[]).filter(s => new Date(s.timestamp).toDateString() === tod);
+
+  const salesManana = allTodaySales.filter(s => {
+    const t = new Date(s.timestamp);
+    return t >= manana_from && t < manana_to;
+  });
+  const salesTarde = allTodaySales.filter(s => {
+    const t = new Date(s.timestamp);
+    return t >= tarde_from && t <= tarde_to;
+  });
+
+  if (!salesManana.length && !salesTarde.length) {
+    showToast('No hay ventas de hoy para el reporte');
+    return;
+  }
+
+  function buildSection(sales, label, rangeStr) {
+    if (!sales.length) return `
+      <div class="cut-section">
+        <div class="cut-header">${label} <span class="cut-range">${rangeStr}</span></div>
+        <p style="color:#8A7060;font-size:12px;padding:12px 0;">Sin ventas en este período</p>
+      </div>`;
+    const cashT = sales.filter(s=>s.paymentMethod==='cash').reduce((a,s)=>a+s.total,0);
+    const digT  = sales.filter(s=>s.paymentMethod==='digital').reduce((a,s)=>a+s.total,0);
+    const tot   = sales.reduce((a,s)=>a+s.total,0);
+    const rows  = [...sales].sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)).map(s=>`
+      <tr>
+        <td>#${String(s.id).padStart(3,'0')}</td>
+        <td>${s.timeStr}</td>
+        <td>${s.items.map(i=>i.name).join(', ')}</td>
+        <td>${s.type==='aqui'?'Para aquí':'Para llevar'}</td>
+        <td class="${s.paymentMethod==='cash'?'tag-cash':'tag-dig'}">${s.paymentMethod==='cash'?'Efectivo':'Digital'}</td>
+        <td style="text-align:right;font-weight:700">$${s.total.toFixed(2)}</td>
+      </tr>`).join('');
+    return `
+      <div class="cut-section">
+        <div class="cut-header">${label} <span class="cut-range">${rangeStr}</span></div>
+        <table>
+          <thead><tr><th>#</th><th>Hora</th><th>Artículos</th><th>Tipo</th><th>Pago</th><th>Total</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="cut-totals">
+          <span class="cash">💵 Efectivo: $${cashT.toFixed(2)}</span>
+          <span class="dig">💳 Digital: $${digT.toFixed(2)}</span>
+          <span class="grand">TOTAL: $${tot.toFixed(2)}</span>
+          <span class="count">${sales.length} transacciones</span>
+        </div>
+      </div>`;
+  }
+
+  const t1Label = tCuts[0]?.cutAtStr || '2:30 PM';
+  const t2Label = tCuts[1]?.cutAtStr || '9:00 PM';
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Druppa — Cortes del día</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:Arial,sans-serif;padding:28px;color:#2C1A0E;font-size:12px;background:white;}
+    .page-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #C07840;}
+    .brand{font-size:26px;font-weight:900;color:#C07840;letter-spacing:-0.5px;}
+    .brand span{color:#2C1A0E;}
+    .page-sub{font-size:13px;color:#8A7060;margin-top:4px;}
+    .print-date{text-align:right;font-size:11px;color:#8A7060;}
+    .cut-section{margin-bottom:28px;border:1.5px solid #E0D4C0;border-radius:8px;overflow:hidden;}
+    .cut-header{background:#2C1A0E;color:white;padding:10px 16px;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:space-between;}
+    .cut-range{font-size:11px;font-weight:400;color:rgba(255,255,255,0.65);}
+    table{width:100%;border-collapse:collapse;}
+    th{background:#FAF0E0;color:#5C3D1E;padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;}
+    td{padding:7px 10px;border-bottom:1px solid #F0E8D8;font-size:12px;}
+    tr:last-child td{border-bottom:none;}
+    .tag-cash{color:#4A7C59;font-weight:700;}
+    .tag-dig{color:#1A5FAD;font-weight:700;}
+    .cut-totals{background:#FAF0E0;padding:12px 16px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;border-top:1.5px solid #E0D4C0;}
+    .cash{color:#4A7C59;font-weight:700;font-size:13px;}
+    .dig{color:#1A5FAD;font-weight:700;font-size:13px;}
+    .grand{color:#C07840;font-weight:900;font-size:15px;margin-left:auto;}
+    .count{color:#8A7060;font-size:11px;}
+    .day-summary{background:#2C1A0E;color:white;border-radius:8px;padding:14px 18px;margin-top:8px;display:flex;gap:28px;flex-wrap:wrap;align-items:center;}
+    .day-summary .lbl{font-size:10px;opacity:0.55;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;}
+    .day-summary .val{font-size:18px;font-weight:900;}
+    .day-summary .val.c{color:#7FD47F;}
+    .day-summary .val.d{color:#7EB8F7;}
+    .day-summary .val.t{color:#FFD97D;}
+    @media print{body{padding:14px;}.cut-section{page-break-inside:avoid;}}
+  </style>
+  </head><body>
+  <div class="page-header">
+    <div>
+      <div class="brand">☕ Druppa<span>.</span></div>
+      <div class="page-sub">Reporte de cortes — ${todLabel}</div>
+    </div>
+    <div class="print-date">Generado: ${new Date().toLocaleString('es-MX')}</div>
+  </div>
+
+  ${buildSection(salesManana, '✂️ Corte 1 — Mañana', '7:00 AM – ' + t1Label)}
+  ${buildSection(salesTarde,  '✂️ Corte 2 — Tarde',  t1Label + ' – ' + t2Label)}
+
+  ${(()=>{
+    const tot  = allTodaySales.reduce((a,s)=>a+s.total,0);
+    const cash = allTodaySales.filter(s=>s.paymentMethod==='cash').reduce((a,s)=>a+s.total,0);
+    const dig  = allTodaySales.filter(s=>s.paymentMethod==='digital').reduce((a,s)=>a+s.total,0);
+    return `<div class="day-summary">
+      <div><div class="lbl">Ventas del día</div><div class="val">${allTodaySales.length} transacciones</div></div>
+      <div><div class="lbl">Efectivo total</div><div class="val c">$${cash.toFixed(2)}</div></div>
+      <div><div class="lbl">Digital total</div><div class="val d">$${dig.toFixed(2)}</div></div>
+      <div><div class="lbl">Gran total del día</div><div class="val t">$${tot.toFixed(2)}</div></div>
+    </div>`;
+  })()}
+
+  <script>window.onload=()=>window.print()<\/script>
+  </body></html>`;
+
+  const w = window.open(URL.createObjectURL(new Blob([html], {type:'text/html'})), '_blank');
+  if (!w) showToast('Permite ventanas emergentes para exportar PDF');
+  else    showToast('✂️ Abriendo reporte de cortes…');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1711,17 +3055,21 @@ function clearAllSales(){
 // ══════════════════════════════════════════════════════════════
 // SISTEMA DE CORTES  (sincronizado con Firebase)
 // ══════════════════════════════════════════════════════════════
+const _cutsSent = new Set();
 function checkAutocut(){
   if(!window._fbReady) return; // solo el dispositivo principal
+  if(!window._fbConnected || !window._cutsLoaded) return; // sin conexión o sin datos cargados: no encolar escrituras
   const now      = new Date();
   const todayStr = now.toDateString();
   const tCuts    = (window.cuts||[]).filter(c=>c.date===todayStr);
   CUT_SCHEDULES.forEach((sched,idx)=>{
-    const alreadyDone = tCuts.some(c=>c.id===`cut_${todayStr}_${idx}`);
+    const cutId = `cut_${todayStr}_${idx}`;
+    const alreadyDone = tCuts.some(c=>c.id===cutId) || _cutsSent.has(cutId);
     if(alreadyDone) return;
     const ct = new Date(now); ct.setHours(sched.endHour,sched.endMin,0,0);
     if(now>=ct){
       const rec={id:`cut_${todayStr}_${idx}`,label:sched.label,cutAt:ct.toISOString(),cutAtStr:ct.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}),date:todayStr};
+      _cutsSent.add(cutId);
       window._set(window._ref(window._db,`cuts/${rec.id}`),rec);
     }
   });
@@ -1747,25 +3095,21 @@ window.renderCutBanner = function(){
   const tod  =new Date().toDateString();
   const tCuts=(window.cuts||[]).filter(c=>c.date===tod);
   if(!tCuts.length){
-    banner.style.display='flex';
     banner.innerHTML=`
-      <div class="cut-info"><span class="cut-badge">Sin cortes hoy</span><span style="margin-left:10px">Automático: <strong>2:30 PM</strong> y <strong>10:00 PM</strong></span></div>
-      <button class="cut-btn" onclick="manualCut()">✂️ Hacer corte ahora</button>`;
+      <div style="padding:4px 10px 8px;font-size:11px;color:rgba(250,247,242,0.45);">Sin cortes hoy<br>Auto: 2:30 PM y 9:00 PM</div>
+      <button class="sidebar-btn" onclick="manualCut()" style="color:#FFD97D;">✂️ Hacer corte ahora</button>`;
   } else {
     const last =tCuts[tCuts.length-1];
     const after=(window.salesHistory||[]).filter(s=>new Date(s.timestamp)>new Date(last.cutAt)&&new Date(s.timestamp).toDateString()===tod);
     const aft$ =after.reduce((a,s)=>a+s.total,0);
-    banner.style.display='flex';
     banner.innerHTML=`
-      <div class="cut-info" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span class="cut-badge">${last.label} — ${last.cutAtStr}</span>
-        <span>Desde el corte: <strong>$${aft$.toFixed(2)}</strong> (${after.length} ventas)</span>
-        ${tCuts.map(c=>`<button class="cut-btn" style="font-size:11px;padding:5px 10px" onclick="viewCutSales('${c.id}')">📋 ${c.label}</button>`).join('')}
+      <div style="padding:4px 10px 6px;">
+        <div style="font-size:11px;font-weight:700;color:var(--caramel-light);">${last.label} — ${last.cutAtStr}</div>
+        <div style="font-size:11px;color:rgba(250,247,242,0.55);margin-top:2px;">Desde corte: <strong class="fig" style="color:rgba(250,247,242,0.85)">$${aft$.toFixed(2)}</strong> (${after.length} ventas)</div>
       </div>
-      <div style="display:flex;gap:8px">
-        ${tCuts.length<2?`<button class="cut-btn" onclick="manualCut()">✂️ Hacer corte</button>`:''}
-        <button class="cut-btn danger" onclick="clearTodayCuts()">🗑 Borrar cortes de hoy</button>
-      </div>`;
+      ${tCuts.map(c=>`<button class="sidebar-btn" onclick="viewCutSales('${c.id}')" style="color:rgba(250,247,242,0.75);">📋 Ver ${c.label}</button>`).join('')}
+      ${tCuts.length<2?`<button class="sidebar-btn" onclick="manualCut()" style="color:#FFD97D;">✂️ Hacer corte</button>`:''}
+      <button class="sidebar-btn" onclick="clearTodayCuts()" style="color:#f08080;">🗑 Borrar cortes</button>`;
   }
 };
 
@@ -1833,20 +3177,278 @@ function renderMenuEditor(){
 
 function triggerPhotoUpload(id){ document.getElementById('photo-input-'+id).click(); }
 
-function handlePhotoUpload(id,input){
-  const file=input.files[0]; if(!file) return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const item=menuItems.find(i=>i.id===id);
-    if(item){ item.photo=e.target.result; saveMenuToFirebase(); renderMenuEditor(); buildMenu(); showToast('📷 Foto actualizada'); }
+function handlePhotoUpload(id, input){
+  const file = input.files[0]; if(!file) return;
+  // Resize image before saving to keep size manageable
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 400;
+      const ratio = Math.min(MAX/img.width, MAX/img.height, 1);
+      canvas.width  = Math.round(img.width  * ratio);
+      canvas.height = Math.round(img.height * ratio);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const compressed = canvas.toDataURL('image/jpeg', 0.75);
+      // Save to localStorage (persists across sessions, no size limit issues)
+      try { localStorage.setItem('druppa_photo_'+id, compressed); } catch(e) {}
+      const item = menuItems.find(i=>i.id===id);
+      if(item){
+        item.photo = compressed;
+        // Guarda los campos del producto y la foto (solo esta foto, una vez)
+        saveMenuToFirebase();
+        if(window._fbReady) window._set(window._ref(window._db, 'menuData/item_' + id + '/photo'), compressed);
+        renderMenuEditor(); buildMenu();
+        showToast('📷 Foto guardada');
+      }
+    };
+    img.src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
 
+// ══════════════════════════════════════════════════════════════
+// ASISTENTE IA — preguntas en lenguaje natural sobre las ventas
+// Usa la API GRATIS de Google Gemini (aistudio.google.com) con la
+// key guardada en este navegador (localStorage). No pasa por
+// ningún servidor propio.
+// ══════════════════════════════════════════════════════════════
+let aiChatHistory = []; // [{role:'user'|'model', parts:[{text:'...'}]}]
+
+function initAIKey(){
+  const saved = localStorage.getItem('druppa_ai_key');
+  const el = document.getElementById('ai-api-key');
+  if(saved && el) el.value = saved;
+}
+
+function saveAIKey(){
+  const el = document.getElementById('ai-api-key');
+  const key = (el?.value || '').trim();
+  if(!key){ showToast('Escribe tu API key primero'); return; }
+  localStorage.setItem('druppa_ai_key', key);
+  showToast('🔑 API key guardada en este navegador');
+}
+
+// Heurística fría/caliente a partir del nombre y categoría del producto
+function inferTemp(name, categoria){
+  const n = (name||'').toLowerCase();
+  const c = (categoria||'').toLowerCase();
+  if(/iced|frapp|cold foam|cold brew|tonic|fizz/.test(n) || /helada|cold brew/.test(c)) return 'frío';
+  if(/agua|panader/.test(c)) return 'n/a';
+  return 'caliente';
+}
+
+// Arma el detalle COMPLETO de cada venta (no solo agregados por día) + salidas de efectivo,
+// para que la IA pueda responder cualquier pregunta sobre el historial real.
+function buildAISalesSummary(){
+  const MAX_VENTAS = 3000; // límite de seguridad para no reventar el contexto de la IA
+  const sales = window.salesHistory || [];
+  const sorted = [...sales].sort((a,b)=> new Date(a.timestamp) - new Date(b.timestamp));
+  const recortado = sorted.length > MAX_VENTAS;
+  const usadas = recortado ? sorted.slice(sorted.length - MAX_VENTAS) : sorted;
+
+  const ventas = usadas.map(s=>{
+    const d = s.timestamp ? new Date(s.timestamp) : null;
+    return {
+      id: s.id,
+      fecha: d ? d.toISOString().slice(0,10) : null,
+      hora: s.timeStr || (d ? d.toTimeString().slice(0,5) : null),
+      tipo: s.type === 'aqui' ? 'para_aqui' : 'para_llevar',
+      metodoPago: s.paymentMethod === 'cash' ? 'efectivo' : 'digital',
+      total: Math.round(s.total || 0),
+      esCortesiaDueno: !!s.esDueno,
+      duenoNombre: s.esDueno ? (s.duenoNombre || null) : undefined,
+      items: (s.items || []).map(it=>{
+        const cat = (window.menuItems||[]).find(m=>m.name===it.name)?.category || it.category || 'Otro';
+        return { nombre: it.name, categoria: cat, temperatura: inferTemp(it.name, cat), precio: it.price || 0 };
+      })
+    };
+  });
+
+  const salidas = (window.flujoEfectivo || []).map(m=>{
+    const d = m.timestamp ? new Date(m.timestamp) : null;
+    return {
+      fecha: d ? d.toISOString().slice(0,10) : (m.dateStr || null),
+      hora: m.timeStr || null,
+      descripcion: m.desc || null,
+      monto: Math.round(m.monto || 0),
+      metodoPago: m.paymentMethod === 'cash' ? 'efectivo' : 'digital'
+    };
+  });
+
+  return { ventas, salidasEfectivo: salidas, notaRecorte: recortado ? `Solo se incluyen las ${MAX_VENTAS} ventas más recientes de un total de ${sorted.length}.` : null };
+}
+
+function appendAIMessage(role, text){
+  const log = document.getElementById('ai-chat-log');
+  if(!log) return;
+  const bubble = document.createElement('div');
+  bubble.className = role==='user' ? 'ai-msg-user' : 'ai-msg-ai';
+  bubble.textContent = text;
+  log.appendChild(bubble);
+  log.scrollTop = log.scrollHeight;
+}
+
+function askAIQuick(q){
+  const input = document.getElementById('ai-question-input');
+  if(input) input.value = q;
+  askAI();
+}
+
+async function askAI(){
+  const input = document.getElementById('ai-question-input');
+  const question = (input?.value || '').trim();
+  if(!question){ showToast('Escribe una pregunta'); return; }
+
+  const apiKey = (document.getElementById('ai-api-key')?.value || localStorage.getItem('druppa_ai_key') || '').trim();
+  if(!apiKey){ showToast('🔑 Primero guarda tu API key gratis de Google AI Studio'); return; }
+
+  appendAIMessage('user', question);
+  input.value = '';
+  const btn = document.getElementById('ai-send-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Pensando…'; }
+
+  const resumen = buildAISalesSummary();
+  const systemPrompt = `Eres el asistente de estadísticas de Druppa, una cafetería de especialidad en Zacatecas, México.
+Recibes el HISTORIAL COMPLETO de ventas en JSON, venta por venta (no resumido por día), más las salidas de efectivo (gastos).
+Formato de "ventas": cada registro trae id, fecha (YYYY-MM-DD), hora, tipo ("para_aqui"/"para_llevar"), metodoPago ("efectivo"/"digital"), total, esCortesiaDueno, y items: [{nombre, categoria, temperatura: "frío"/"caliente"/"n/a", precio}].
+Formato de "salidasEfectivo": fecha, hora, descripcion, monto, metodoPago — son gastos/retiros, no ventas.
+Si "notaRecorte" no es null, significa que el historial se recortó a las ventas más recientes por límite de tamaño — dilo si es relevante para la pregunta.
+Responde siempre en español, de forma breve, directa y clara. Usa $ (pesos mexicanos) cuando corresponda.
+Cuenta, suma, filtra o agrupa tú mismo usando SOLO los datos del JSON (por fecha, por producto, por hora, por tipo de pago, etc.) — nunca inventes cifras que no se puedan derivar de ahí.
+Si piden un promedio "por día", agrupa las ventas por fecha primero y divide entre el número de fechas distintas en el rango relevante.
+Si la pregunta no se puede responder con estos datos, dilo con claridad en vez de adivinar.
+Sé conversacional pero conciso: un párrafo corto o una lista breve, no más.
+
+HISTORIAL DE VENTAS Y SALIDAS (JSON):
+${JSON.stringify(resumen)}`;
+
+  aiChatHistory.push({role:'user', parts:[{text: question}]});
+
+  try{
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: aiChatHistory,
+        generationConfig: { maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'low' } }
+      })
+    });
+    const data = await resp.json();
+    if(data.error){
+      appendAIMessage('ai', '⚠️ Error de la API: ' + (data.error.message || 'no se pudo consultar la IA'));
+      aiChatHistory.pop();
+    } else {
+      const text = data.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('\n').trim() || 'No obtuve respuesta.';
+      const finish = data.candidates?.[0]?.finishReason;
+      appendAIMessage('ai', text + (finish==='MAX_TOKENS' ? '\n\n⚠️ (respuesta cortada por límite de tokens, intenta una pregunta más específica)' : ''));
+      aiChatHistory.push({role:'model', parts:[{text}]});
+    }
+  } catch(err){
+    appendAIMessage('ai', '⚠️ No se pudo conectar con la API: ' + err.message);
+    aiChatHistory.pop();
+  }
+  if(btn){ btn.disabled = false; btn.textContent = 'Preguntar'; }
+}
+
+document.addEventListener('DOMContentLoaded', initAIKey);
+
+// Load photos from localStorage on startup
+function loadPhotosFromLocalStorage() {
+  menuItems.forEach(item => {
+    const saved = localStorage.getItem('druppa_photo_'+item.id);
+    if(saved && !item.photo) item.photo = saved;
+  });
+}
+
 function updateItem(id,key,val){ const i=menuItems.find(i=>i.id===id); if(i){ i[key]=val; saveMenuToFirebase(); buildMenu(); } }
 function toggleActive(id){ const i=menuItems.find(i=>i.id===id); if(i){ i.active=!i.active; saveMenuToFirebase(); renderMenuEditor(); buildMenu(); } }
-function deleteMenuItem(id){ if(!confirm('¿Eliminar este producto?')) return; menuItems=menuItems.filter(i=>i.id!==id); saveMenuToFirebase(); renderMenuEditor(); buildMenu(); }
+function deleteMenuItem(id){ if(!confirm('¿Eliminar este producto?')) return; menuItems=menuItems.filter(i=>i.id!==id); if(window._fbReady) window._remove(window._ref(window._db, 'menuData/item_' + id)); saveMenuToFirebase(); renderMenuEditor(); buildMenu(); }
 function addNewMenuItem(){ menuItems.push({id:Date.now(),name:'Nuevo producto',category:'Espresso',price:50,emoji:'☕',active:false,stock:99,options:buildOpts('Nuevo')}); saveMenuToFirebase(); renderMenuEditor(); buildMenu(); showToast('Nuevo producto creado'); }
+
+// ══════════════════════════════════════════════════════════════
+// FLUJO DE EFECTIVO — ENTRADAS (ventas) Y SALIDAS (manuales)
+// ══════════════════════════════════════════════════════════════
+window.flujoEfectivo = window.flujoEfectivo || [];
+let flujoFiltro  = 'hoy';
+let flujoMetodo  = 'cash'; // 'cash' | 'digital'
+
+function setFlujoMetodo(met) {
+  flujoMetodo = met;
+  const btnC = document.getElementById('flujo-met-cash');
+  const btnD = document.getElementById('flujo-met-digital');
+  if(!btnC || !btnD) return;
+  btnC.style.background = met === 'cash'    ? 'var(--success)' : 'transparent';
+  btnC.style.color      = met === 'cash'    ? 'white'          : 'var(--success)';
+  btnD.style.background = met === 'digital' ? 'var(--success)' : 'transparent';
+  btnD.style.color      = met === 'digital' ? 'white'          : 'var(--success)';
+}
+
+function flujoFiltrar(filtro) {
+  flujoFiltro = filtro;
+  ['hoy','semana','mes','todo'].forEach(f => {
+    const b = document.getElementById('fb-'+f);
+    if(!b) return;
+    b.style.background = f === filtro ? 'var(--caramel)' : 'transparent';
+    b.style.color      = f === filtro ? 'white' : 'var(--text-muted)';
+  });
+  const labels = {hoy:'Hoy', semana:'Esta semana', mes:'Este mes', todo:'Todo el historial'};
+  const lbl = document.getElementById('flujo-period-label');
+  if(lbl) lbl.textContent = labels[filtro];
+  renderStats();
+}
+
+function getFlujoFiltrado() {
+  // Not used standalone anymore - salidas filtered inside renderStats using activePeriod
+  return { salidas: window.flujoEfectivo || [], ventas: window.salesHistory || [] };
+}
+
+function addFlujoMovimiento() {
+  const descEl  = document.getElementById('flujo-desc');
+  const montoEl = document.getElementById('flujo-monto');
+  const desc    = (descEl?.value || '').trim();
+  const monto   = parseFloat(montoEl?.value || '0');
+  if(!desc)  { showToast('Escribe una descripción'); descEl?.focus(); return; }
+  if(!monto || monto <= 0) { showToast('Ingresa un monto mayor a 0'); montoEl?.focus(); return; }
+
+  const now = new Date();
+  const mov = {
+    id:            'f_' + Date.now(),
+    tipo:          'salida',
+    desc:          desc,
+    monto:         monto,
+    paymentMethod: flujoMetodo,
+    timestamp:     now.toISOString(),
+    timeStr:       now.toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}),
+    dateStr:       now.toLocaleDateString('es-MX', {day:'2-digit', month:'2-digit', year:'numeric'})
+  };
+
+  if(window._fbReady) {
+    window._set(window._ref(window._db, `flujoEfectivo/${mov.id}`), mov);
+  } else {
+    window.flujoEfectivo.push(mov);
+    window.renderStats?.();
+  }
+
+  descEl.value  = '';
+  montoEl.value = '';
+  showToast(`⬇️ Salida registrada: $${monto.toFixed(2)}`);
+}
+
+function deleteFlujoMovimiento(id) {
+  if(!confirm('¿Eliminar esta salida?')) return;
+  if(window._fbReady) {
+    window._remove(window._ref(window._db, `flujoEfectivo/${id}`));
+  } else {
+    window.flujoEfectivo = window.flujoEfectivo.filter(m => m.id !== id);
+    window.renderStats?.();
+  }
+  showToast('🗑 Salida eliminada');
+}
+
+// renderFlujo is now handled inside renderStats directly
 
 // ══════════════════════════════════════════════════════════════
 // TOAST
@@ -1862,6 +3464,7 @@ function showToast(msg){
 // ══════════════════════════════════════════════════════════════
 document.getElementById('order-number').textContent = String(window.orderNumber).padStart(3,'0');
 buildMenu();
+loadPhotosFromLocalStorage();
 renderOrderPanel();
 checkAutocut();
 setInterval(checkAutocut, 60000);
