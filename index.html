@@ -1068,7 +1068,7 @@ function logout() {
 // ══════════════════════════════════════════════════════════════
 // DATOS DEL MENÚ
 // ══════════════════════════════════════════════════════════════
-const CATEGORIES = ['Todos','Espresso','Con leche','Bebidas heladas','Cold Brew','Matcha','Sin cafeína','Panadería','Agua','Combos'];
+const CATEGORIES = ['Todos','Temporada','Espresso','Con leche','Bebidas heladas','Cold Brew','Matcha','Sin cafeína','Panadería','Agua','Combos'];
 
 // Bebidas que SÍ pueden agregar extra shot (+$20)
 const CAN_EXTRA_SHOT = new Set([
@@ -1118,8 +1118,8 @@ const CAN_CHANGE_FLAVOR = new Set([
   'Iced Latte','Frappé Clásico','Combo Iced Latte','Combo Latte Pan',
 ]);
 
-const MILK_OPTIONS = ['Entera (incluida)','Deslactosada (+$3)','Light (+$5)','Almendra (+$8)'];
-const FLAVORS      = ['Sin sabor extra','Vainilla (+$10)','Caramelo (+$10)','Avellana (+$10)','Canela (+$10)','Menta (+$10)','Crema Irlandesa (+$10)','Amareto (+$10)'];
+const MILK_OPTIONS = ['Entera (incluida)','Deslactosada (+$3)','Light (+$5)','Almendra (+$8)','Avena (+$15)'];
+const FLAVORS      = ['Sin sabor extra','Vainilla (+$10)','Caramelo (+$10)','Avellana (+$10)','Canela (+$10)','Menta (+$10)','Crema Irlandesa (+$10)','Amareto (+$10)','Miel (+$10)'];
 const TEMP_OPTIONS = ['Caliente','Frío'];
 
 const CAN_CHANGE_TEMP = new Set([
@@ -1142,6 +1142,7 @@ function buildOpts(name) {
 
 // Secciones del menú para el scroll por categoría
 const MENU_SECTIONS = [
+  { id:'temporada', label:'Temporada', icon:'🍂', items:[] },
   { id:'espresso', label:'Espresso', icon:'☕', items:[
     {id:1, name:'Espresso',   price:35, emoji:'☕'},
     {id:2, name:'Long Black', price:45, emoji:'☕'},
@@ -1229,6 +1230,32 @@ let menuItems = MENU_SECTIONS.flatMap(s =>
   }))
 );
 
+// ── Menú en línea: qué productos salen en la página de pedidos ──
+// Por defecto salen los que ya estaban en la página; los nuevos nacen apagados.
+const DEFAULT_ONLINE = new Set(["Espresso","Long Black","Cortado","Flat White","Latte","Cappuccino","Dirty Chai","Mocha","Mocha Blanco","Mocha Menta","Caramel Macchiato","Red Velvet Latte","Iced Espresso Americano","Iced Latte","Iced Caramel","Tiramisú Cold Foam","Cinnamon Cold Foam","Shakerato Cold Foam","Iced Chai Latte","Frappé Clásico","Frappé Mocha","Frappé Caramelo","Cold Brew","Orange Tonic","Vainilla Cold Foam","Matcha Orgánico","Matcha Latte","Iced Matcha Latte","Iced Coconut Foam Matcha","Iced Matcha Strawberry Foam","Iced Matcha Pistachio Foam","Matcha Ceremonial","Blue Matcha Lavanda","Iced Blue Matcha Lavanda","Mandarin Fizz","Tisana","Pan Almendrado","Pan Normal","Galletas"]);
+function itemOnline(i){ return (i.online===undefined || i.online===null) ? DEFAULT_ONLINE.has(i.name) : !!i.online; }
+function itemOnMilk(i){ return (i.onMilk===undefined || i.onMilk===null) ? CAN_CHANGE_MILK.has(i.name) : !!i.onMilk; }
+function itemOnFlavor(i){ return (i.onFlavor===undefined || i.onFlavor===null) ? CAN_CHANGE_FLAVOR.has(i.name) : !!i.onFlavor; }
+
+// Publica el menú compilado en 'onlineMenu'; la página de pedidos lo lee de ahí.
+function publishOnlineMenu() {
+  if(!window._fbReady) return;
+  const cats = {}, order = [];
+  menuItems.forEach(i => {
+    const price = Number(i.price);
+    if(!i.active || !itemOnline(i) || !isFinite(price) || price <= 0 || !String(i.name||'').trim()) return;
+    const c = i.category || 'Otros';
+    if(!cats[c]){ cats[c] = []; order.push(c); }
+    cats[c].push({ id:i.id, name:String(i.name).trim(), price, emoji:i.emoji||'☕', note:i.note||'', milk:itemOnMilk(i), flavor:itemOnFlavor(i) });
+  });
+  order.sort((a,b)=> (b==='Temporada') - (a==='Temporada')); // Temporada va primero
+  window._set(window._ref(window._db, 'onlineMenu'), {
+    updatedAt: Date.now(),
+    categories: order.map(n => ({ name:n, items:cats[n] }))
+  });
+}
+window.publishOnlineMenu = publishOnlineMenu;
+
 // ── Persistencia de menú en Firebase ──
 function saveMenuToFirebase() {
   if(!window._fbReady) return;
@@ -1244,8 +1271,12 @@ function saveMenuToFirebase() {
     upd[b+'active']   = item.active;
     upd[b+'stock']    = item.stock || 99;
     upd[b+'note']     = item.note || null;
+    upd[b+'online']   = (item.online   === undefined ? null : item.online);
+    upd[b+'onMilk']   = (item.onMilk   === undefined ? null : item.onMilk);
+    upd[b+'onFlavor'] = (item.onFlavor === undefined ? null : item.onFlavor);
   });
   window._update(window._ref(window._db, 'menuData'), upd);
+  publishOnlineMenu();
 }
 
 function loadMenuFromFirebase(data) {
@@ -1267,6 +1298,9 @@ function loadMenuFromFirebase(data) {
       item.stock    = saved.stock || 99;
       item.photo    = saved.photo || null;
       item.note     = saved.note || null;
+      item.online   = (saved.online   === undefined ? null : saved.online);
+      item.onMilk   = (saved.onMilk   === undefined ? null : saved.onMilk);
+      item.onFlavor = (saved.onFlavor === undefined ? null : saved.onFlavor);
       item.options  = buildOpts(saved.name);
     } else {
       // Producto nuevo que no está en el default
@@ -1280,6 +1314,8 @@ function loadMenuFromFirebase(data) {
   loadPhotosFromLocalStorage();
   if(document.getElementById('screen-menu-editor')?.classList.contains('active'))
     renderMenuEditor();
+  // Primera carga de la sesión: deja publicado el menú en línea (si no existía aún)
+  if(!window._onlineMenuPublished){ window._onlineMenuPublished = true; publishOnlineMenu(); }
 }
 window.loadMenuFromFirebase = loadMenuFromFirebase;
 
@@ -1479,7 +1515,7 @@ window.renderHistorial = renderHistorial;
 // ══════════════════════════════════════════════════════════════
 function buildMenu() {
   // Jump bar
-  document.getElementById('jumper-bar').innerHTML = MENU_SECTIONS.map(s =>
+  document.getElementById('jumper-bar').innerHTML = MENU_SECTIONS.filter(s => menuItems.some(i => i.category === s.label && i.active)).map(s =>
     `<button class="jump-btn" data-sec="${s.id}" onclick="jumpTo('${s.id}')">${s.icon} ${s.label}</button>`
   ).join('');
 
@@ -2672,24 +2708,59 @@ function playOnlineSound(){
 }
 window.playOnlineSound = playOnlineSound;
 
+// Minutos antes de la llegada en que se avisa "prepáralo ya"
+const PREP_LEAD_MS = 6*60000;
+function _prepPending(){
+  const now=Date.now();
+  return (window.pendingOrders||[]).filter(o=>o.status==='pending' && o.source==='online' && o.accepted && !o.started && o.arrivalTs && (o.arrivalTs-now)<=PREP_LEAD_MS);
+}
+function _ringPrep(ctx){
+  // "pi-pi-pi" agudo y rápido: distinto al din-don de pedido nuevo y al timbre de mostrador
+  [0,0.2,0.4].forEach(dt=>{
+    const t=ctx.currentTime+dt, osc=ctx.createOscillator(), gain=ctx.createGain();
+    osc.type='square'; osc.frequency.value=1568;
+    osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0,t);
+    gain.gain.linearRampToValueAtTime(0.6,t+0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001,t+0.14);
+    osc.start(t); osc.stop(t+0.16);
+  });
+  try{ navigator.vibrate && navigator.vibrate([200,100,200,100,200]); }catch(e){}
+}
+function playPrepSound(){
+  if(window._soundActive===false) return;
+  try{
+    const ctx=_ensureAudio(); if(!ctx) return;
+    if(ctx.state!=='running'){ ctx.resume().then(()=>{ if(ctx.state==='running') _ringPrep(ctx); }).catch(()=>{}); return; }
+    _ringPrep(ctx);
+  }catch(e){ console.warn('Sound error:', e); }
+}
+window.playPrepSound = playPrepSound;
+
+window._lastNewRing = 0;
+window._lastPrepRing = 0;
+// Se revisa cada 2 s: pedido nuevo suena cada 6 s; "prepáralo ya" cada 15 s, hasta que lo atiendan
 window.syncOnlineAlarm = function(){
-  const pend=_onlinePending();
-  // 1) alarma: suena de inmediato y se repite cada 6 s mientras haya pedidos sin aceptar
-  if(pend.length){
-    if(!window._onlineAlarmTimer){
-      playOnlineSound();
-      window._onlineAlarmTimer=setInterval(()=>{ if(_onlinePending().length) playOnlineSound(); window.syncOnlineAlarm(); }, 6000);
-    }
-  } else if(window._onlineAlarmTimer){
-    clearInterval(window._onlineAlarmTimer); window._onlineAlarmTimer=null;
+  const nuevos=_onlinePending(), prep=_prepPending(), now=Date.now();
+  if(nuevos.length){
+    if(now-window._lastNewRing>=6000){ window._lastNewRing=now; playOnlineSound(); }
+  } else if(prep.length){
+    if(now-window._lastPrepRing>=15000){ window._lastPrepRing=now; playPrepSound(); }
   }
-  // 2) aviso fijo arriba (se ve en cualquier pantalla del POS)
   const box=document.getElementById('online-alert');
   if(!box) return;
-  if(pend.length){
-    const nombres=pend.map(o=>o.customerName||'Cliente').join(', ');
-    document.getElementById('online-alert-text').textContent =
-      '🛎️ PEDIDO EN LÍNEA'+(pend.length>1?' ('+pend.length+')':'')+' · '+nombres;
+  if(nuevos.length || prep.length){
+    const txt=document.getElementById('online-alert-text');
+    if(nuevos.length){
+      txt.textContent='🛎️ PEDIDO EN LÍNEA'+(nuevos.length>1?' ('+nuevos.length+')':'')+' · '+nuevos.map(o=>o.customerName||'Cliente').join(', ');
+      box.style.background='var(--caramel)';
+    } else {
+      txt.textContent='🔥 PREPÁRALO YA · '+prep.map(o=>{
+        const m=Math.ceil((o.arrivalTs-now)/60000);
+        return (o.customerName||'Cliente')+(m>0?' (llega en '+m+' min)':' (ya llegó)');
+      }).join(', ');
+      box.style.background='var(--danger)';
+    }
     const mudo = window._soundActive===false || !_audioCtx || _audioCtx.state!=='running';
     document.getElementById('online-alert-sound').style.display = mudo ? 'inline-block' : 'none';
     box.style.display='flex';
@@ -2697,8 +2768,20 @@ window.syncOnlineAlarm = function(){
     box.style.display='none';
   }
 };
+if(!window._onlineTicker) window._onlineTicker=setInterval(()=>window.syncOnlineAlarm(),2000);
 
 function goOnlineOrders(){ showScreen('barista', document.querySelectorAll('.nav-tab')[1]); }
+
+function startOnline(id){
+  if(window._fbReady){
+    window._update(window._ref(window._db,`pendingOrders/${id}`),{started:true, startedAt:new Date().toISOString()});
+  }
+  const o=(window.pendingOrders||[]).find(x=>x.id===id);
+  if(o) o.started=true;
+  window.syncOnlineAlarm();
+  renderBaristaScreen();
+  showToast(`🔥 Preparando #${String(id).padStart(3,'0')}`);
+}
 
 function acceptOnline(id){
   if(window._fbReady){
@@ -2736,11 +2819,12 @@ window.renderBaristaScreen = function() {
       const hora = order.arrivalTs ? new Date(order.arrivalTs).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}) : '--:--';
       let faltaCls='falta', faltaTxt='';
       if(restMin===null){ faltaTxt=''; }
+      else if(order.started){ faltaCls='falta ya'; faltaTxt='🔥 Preparando'+(restMin>0?' · llega en '+restMin+' min':restMin===0?' · llega ahora':' · llegó hace '+(-restMin)+' min'); }
       else if(restMin>6){ faltaTxt='faltan '+restMin+' min'; }
       else if(restMin>0){ faltaCls='falta ya'; faltaTxt='¡PREPÁRALO YA! · '+restMin+' min'; }
       else { faltaCls='falta tarde'; faltaTxt=restMin===0?'llega ahora':'llegó hace '+(-restMin)+' min'; }
       ticketCls = 'ticket online' + (order.accepted ? '' : ' nuevo');
-      if(restMin!==null && restMin<=0) ticketCls += ' very-urgent';
+      if(restMin!==null && restMin<=0 && !order.started) ticketCls += ' very-urgent';
       tCls = 'timer-ok';
       ribbon = `<div class="online-ribbon"><span>🛍️ PEDIDO EN LÍNEA · pagado</span><span>${_esc(order.etaMin||'')} min</span></div>`;
       onlineHtml = `<div class="online-eta">
@@ -2769,6 +2853,10 @@ window.renderBaristaScreen = function() {
     }).join('');
     const botones = (online && !order.accepted)
       ? `<button class="btn-accept" onclick="acceptOnline(${order.id})">✅ Aceptar pedido</button>
+         <button class="btn-cancel-ticket" onclick="cancelTicket(${order.id})">Cancelar</button>`
+      : (online && !order.started)
+      ? `<button class="btn-accept" onclick="startOnline(${order.id})">▶ Empezar a preparar</button>
+         <button class="btn-ready"         onclick="markReady(${order.id})">✓ Listo</button>
          <button class="btn-cancel-ticket" onclick="cancelTicket(${order.id})">Cancelar</button>`
       : `<button class="btn-ready"         onclick="markReady(${order.id})">✓ Listo</button>
          <button class="btn-cancel-ticket" onclick="cancelTicket(${order.id})">Cancelar</button>`;
@@ -3324,6 +3412,14 @@ function renderMenuEditor(){
         <div class="toggle-switch ${item.active?'on':''}" onclick="toggleActive(${item.id})"></div>
         <span>${item.active?'Activo en menú':'Oculto'}</span>
       </label>
+      <label class="editor-toggle">
+        <div class="toggle-switch ${itemOnline(item)?'on':''}" onclick="toggleOnlineItem(${item.id})"></div>
+        <span>${itemOnline(item)?'🌐 Visible en pedidos en línea':'🌐 No sale en línea'}</span>
+      </label>
+      ${itemOnline(item)?`<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:4px">
+        <label style="cursor:pointer"><input type="checkbox" ${itemOnMilk(item)?'checked':''} onchange="updateItem(${item.id},'onMilk',this.checked)"> 🥛 Cambio de leche</label>
+        <label style="cursor:pointer"><input type="checkbox" ${itemOnFlavor(item)?'checked':''} onchange="updateItem(${item.id},'onFlavor',this.checked)"> ✨ Sabor extra</label>
+      </div>`:''}
     </div>`;
   }).join('');
 }
@@ -3517,8 +3613,17 @@ function loadPhotosFromLocalStorage() {
 }
 
 function updateItem(id,key,val){ const i=menuItems.find(i=>i.id===id); if(i){ i[key]=val; saveMenuToFirebase(); buildMenu(); } }
+function toggleOnlineItem(id){ const i=menuItems.find(i=>i.id===id); if(i){ i.online=!itemOnline(i); saveMenuToFirebase(); renderMenuEditor(); showToast(i.online?'🌐 Ahora sale en línea':'Ya no sale en línea'); } }
 function toggleActive(id){ const i=menuItems.find(i=>i.id===id); if(i){ i.active=!i.active; saveMenuToFirebase(); renderMenuEditor(); buildMenu(); } }
-function deleteMenuItem(id){ if(!confirm('¿Eliminar este producto?')) return; menuItems=menuItems.filter(i=>i.id!==id); if(window._fbReady) window._remove(window._ref(window._db, 'menuData/item_' + id)); saveMenuToFirebase(); renderMenuEditor(); buildMenu(); }
+const DEFAULT_IDS = new Set(MENU_SECTIONS.flatMap(s=>s.items.map(i=>i.id)));
+function deleteMenuItem(id){
+  const it=menuItems.find(i=>i.id===id); if(!it) return;
+  if(DEFAULT_IDS.has(id)){
+    // Producto del menú base: si se borrara, volvería a aparecer al recargar. Se oculta y se puede reactivar.
+    if(!confirm('Este producto es del menú base: se va a OCULTAR (no se borra) y puedes volver a activarlo cuando quieras. ¿Ocultarlo?')) return;
+    it.active=false; it.online=false; saveMenuToFirebase(); renderMenuEditor(); buildMenu(); showToast('Producto oculto'); return;
+  }
+  if(!confirm('¿Eliminar este producto?')) return; menuItems=menuItems.filter(i=>i.id!==id); if(window._fbReady) window._remove(window._ref(window._db, 'menuData/item_' + id)); saveMenuToFirebase(); renderMenuEditor(); buildMenu(); }
 function addNewMenuItem(){ menuItems.push({id:Date.now(),name:'Nuevo producto',category:'Espresso',price:50,emoji:'☕',active:false,stock:99,options:buildOpts('Nuevo')}); saveMenuToFirebase(); renderMenuEditor(); buildMenu(); showToast('Nuevo producto creado'); }
 
 // ══════════════════════════════════════════════════════════════
