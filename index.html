@@ -1150,9 +1150,9 @@ const MENU_SECTIONS = [
     {id:56, name:'ESPRESSO TONIC',   price:65,  emoji:'☕'},
     {id:57, name:'SABOR EXTRA',      price:10,  emoji:'➕'},
     {id:58, name:'EXTRA FOAM',       price:20,  emoji:'➕'},
-    {id:59, name:'LATTE P. CLOUD',   price:85,  emoji:'🍂'},
-    {id:60, name:'MATCHA P. CLOUD',  price:90,  emoji:'🍂'},
-    {id:61, name:'CHAI P. CLOUD',    price:90,  emoji:'🍂'},
+    {id:59, name:'LATTE P. CLOUD',   price:85,  emoji:'☁️'},
+    {id:60, name:'MATCHA P. CLOUD',  price:90,  emoji:'☁️'},
+    {id:61, name:'CHAI P. CLOUD',    price:90,  emoji:'☁️'},
     {id:62, name:'Leche de almendra',   price:8,  emoji:'🥛'},
     {id:63, name:'Leche de Avena',      price:15, emoji:'🥛'},
     {id:64, name:'Leche Light',         price:5,  emoji:'🥛'},
@@ -1239,17 +1239,17 @@ function itemOnFlavor(i){ return (i.onFlavor===undefined || i.onFlavor===null) ?
 
 // Publica el menú compilado en 'onlineMenu'; la página de pedidos lo lee de ahí.
 function publishOnlineMenu() {
-  if(!window._fbReady) return;
+  if(!window._fbReady) return Promise.resolve();
   const cats = {}, order = [];
   menuItems.forEach(i => {
     const price = Number(i.price);
     if(!i.active || !itemOnline(i) || !isFinite(price) || price <= 0 || !String(i.name||'').trim()) return;
     const c = i.category || 'Otros';
     if(!cats[c]){ cats[c] = []; order.push(c); }
-    cats[c].push({ id:i.id, name:String(i.name).trim(), price, emoji:i.emoji||'☕', note:i.note||'', milk:itemOnMilk(i), flavor:itemOnFlavor(i) });
+    cats[c].push({ id:i.id, name:String(i.name).trim(), price, emoji:i.emoji||'☕', note:i.note||'', photo:i.photo ? '/api/photo?id=' + i.id + (i.photoV ? '&v=' + i.photoV : '') : '', milk:itemOnMilk(i), flavor:itemOnFlavor(i) });
   });
   order.sort((a,b)=> (b==='Temporada') - (a==='Temporada')); // Temporada va primero
-  window._set(window._ref(window._db, 'onlineMenu'), {
+  return window._set(window._ref(window._db, 'onlineMenu'), {
     updatedAt: Date.now(),
     categories: order.map(n => ({ name:n, items:cats[n] }))
   });
@@ -1258,25 +1258,37 @@ window.publishOnlineMenu = publishOnlineMenu;
 
 // ── Persistencia de menú en Firebase ──
 function saveMenuToFirebase() {
-  if(!window._fbReady) return;
-  // Multi-path update: solo campos de texto, NUNCA reenvía las fotos (base64) del menú
+  if(!window._fbReady){ showToast('⚠️ Sin conexión: el cambio NO se guardó'); return; }
+  // Multi-path update: solo campos de texto, NUNCA reenvía las fotos (base64) del menú.
+  // Cada valor se limpia: Firebase rechaza TODO el guardado si UN solo valor es inválido (undefined, NaN).
   const upd = {};
   menuItems.forEach(item => {
     const b = 'item_' + item.id + '/';
+    const price = Number(item.price);
     upd[b+'id']       = item.id;
-    upd[b+'name']     = item.name;
-    upd[b+'price']    = item.price;
-    upd[b+'category'] = item.category;
-    upd[b+'emoji']    = item.emoji;
-    upd[b+'active']   = item.active;
-    upd[b+'stock']    = item.stock || 99;
+    upd[b+'name']     = String(item.name == null ? '' : item.name);
+    upd[b+'price']    = isFinite(price) ? price : 0;
+    upd[b+'category'] = item.category || 'Espresso';
+    upd[b+'emoji']    = item.emoji || '☕';
+    upd[b+'active']   = !!item.active;
+    upd[b+'stock']    = Number(item.stock) || 99;
     upd[b+'note']     = item.note || null;
+    upd[b+'photoV']   = item.photoV || null;
     upd[b+'online']   = (item.online   === undefined ? null : item.online);
     upd[b+'onMilk']   = (item.onMilk   === undefined ? null : item.onMilk);
     upd[b+'onFlavor'] = (item.onFlavor === undefined ? null : item.onFlavor);
   });
-  window._update(window._ref(window._db, 'menuData'), upd);
-  publishOnlineMenu();
+  const fallo = err => {
+    console.error('Guardar menú:', err);
+    const motivo = (err && (err.code || err.message)) || 'error desconocido';
+    showToast('⚠️ NO se guardó el menú: ' + motivo);
+    alert('⚠️ El cambio NO se guardó en la base de datos.\n\nMotivo: ' + motivo + '\n\nSi recargas la página se perderá. Avísale a quien te ayuda con el POS.');
+  };
+  try {
+    const guardar  = Promise.resolve(window._update(window._ref(window._db, 'menuData'), upd));
+    const publicar = Promise.resolve(publishOnlineMenu());
+    Promise.all([guardar, publicar]).then(() => showToast('✓ Menú guardado · pedidos en línea actualizado')).catch(fallo);
+  } catch(err) { fallo(err); }
 }
 
 function loadMenuFromFirebase(data) {
@@ -1298,6 +1310,7 @@ function loadMenuFromFirebase(data) {
       item.stock    = saved.stock || 99;
       item.photo    = saved.photo || null;
       item.note     = saved.note || null;
+      item.photoV   = saved.photoV || null;
       item.online   = (saved.online   === undefined ? null : saved.online);
       item.onMilk   = (saved.onMilk   === undefined ? null : saved.onMilk);
       item.onFlavor = (saved.onFlavor === undefined ? null : saved.onFlavor);
@@ -1315,7 +1328,7 @@ function loadMenuFromFirebase(data) {
   if(document.getElementById('screen-menu-editor')?.classList.contains('active'))
     renderMenuEditor();
   // Primera carga de la sesión: deja publicado el menú en línea (si no existía aún)
-  if(!window._onlineMenuPublished){ window._onlineMenuPublished = true; publishOnlineMenu(); }
+  if(!window._onlineMenuPublished){ window._onlineMenuPublished = true; Promise.resolve(publishOnlineMenu()).catch(e => console.error('Publicar menú en línea:', e)); }
 }
 window.loadMenuFromFirebase = loadMenuFromFirebase;
 
@@ -2896,7 +2909,7 @@ function markReady(id){
 function cancelTicket(id){
   const _o=(window.pendingOrders||[]).find(x=>x.id===id);
   const _msg=(_o && _o.source==='online')
-    ? 'Este pedido ya está PAGADO con Mercado Pago. Si lo cancelas tendrás que devolver el dinero desde Mercado Pago. ¿Cancelar de todos modos?'
+    ? 'Este pedido ya está PAGADO con ' + (_o.payment==='stripe'?'Stripe':'Mercado Pago') + '. Si lo cancelas tendrás que devolver el dinero desde ' + (_o.payment==='stripe'?'Stripe':'Mercado Pago') + '. ¿Cancelar de todos modos?'
     : '¿Cancelar esta orden?';
   if(!confirm(_msg)) return;
   if(window._fbReady){
@@ -3433,23 +3446,31 @@ function handlePhotoUpload(id, input){
   reader.onload = e => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const MAX = 400;
-      const ratio = Math.min(MAX/img.width, MAX/img.height, 1);
-      canvas.width  = Math.round(img.width  * ratio);
-      canvas.height = Math.round(img.height * ratio);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      const compressed = canvas.toDataURL('image/jpeg', 0.75);
+      // Dos tamaños: chica (400 px) para el POS y grande (1000 px) para la página de pedidos
+      const resize = (MAX, q) => {
+        const canvas = document.createElement('canvas');
+        const ratio = Math.min(MAX/img.width, MAX/img.height, 1);
+        canvas.width  = Math.round(img.width  * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', q);
+      };
+      const compressed = resize(400, 0.75);
+      const large      = resize(1000, 0.82);
       // Save to localStorage (persists across sessions, no size limit issues)
       try { localStorage.setItem('druppa_photo_'+id, compressed); } catch(e) {}
       const item = menuItems.find(i=>i.id===id);
       if(item){
-        item.photo = compressed;
-        // Guarda los campos del producto y la foto (solo esta foto, una vez)
-        saveMenuToFirebase();
-        if(window._fbReady) window._set(window._ref(window._db, 'menuData/item_' + id + '/photo'), compressed);
+        item.photo  = compressed;
+        item.photoV = Date.now(); // cambia la dirección de la foto en la página de pedidos
         renderMenuEditor(); buildMenu();
-        showToast('📷 Foto guardada');
+        if(!window._fbReady){ showToast('⚠️ Sin conexión: la foto NO se guardó'); return; }
+        // Primero se guardan las dos fotos y luego se publica el menú (así la página nunca pide una foto que aún no existe)
+        Promise.all([
+          Promise.resolve(window._set(window._ref(window._db, 'menuData/item_' + id + '/photo'), compressed)),
+          Promise.resolve(window._set(window._ref(window._db, 'menuPhotos/item_' + id), large))
+        ]).then(() => { saveMenuToFirebase(); showToast('📷 Foto guardada · ya sale en pedidos en línea'); })
+          .catch(err => { console.error('Foto:', err); alert('⚠️ La foto NO se guardó: ' + ((err && (err.code || err.message)) || 'error')); });
       }
     };
     img.src = e.target.result;
