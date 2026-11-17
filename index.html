@@ -109,6 +109,13 @@ onValue(ref(db, 'menuData'), snap => {
     window.loadMenuFromFirebase(data);
 });
 
+/* ── Listener: semillas de menú (productos que se agregan una sola vez) ── */
+onValue(ref(db, 'menuSeeds'), snap => {
+  window._menuSeeds = snap.val() || {};
+  window._seedsReady = true;
+  if(typeof window.trySeedMenu === 'function') window.trySeedMenu();
+}, err => console.error('menuSeeds:', err));
+
 /* ── Listener: estado de mesas ── */
 onValue(ref(db, 'mesas'), snap => {
   const data = snap.val();
@@ -460,6 +467,8 @@ input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:
 .editor-photo-wrap:hover .editor-photo-overlay{opacity:1;}
 .editor-name-input,.editor-price-input,.editor-cat-select{width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-main);background:var(--cream);outline:none;transition:border-color 0.2s;margin-bottom:8px;}
 .editor-name-input:focus,.editor-price-input:focus,.editor-cat-select:focus{border-color:var(--caramel);}
+.editor-desc-input{width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text-main);background:var(--cream);outline:none;margin-bottom:8px;resize:vertical;}
+.editor-desc-input:focus{border-color:var(--caramel);}
 .editor-toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);cursor:pointer;margin-top:6px;}
 .toggle-switch{width:34px;height:18px;border-radius:9px;background:var(--border);position:relative;transition:background 0.2s;flex-shrink:0;cursor:pointer;}
 .toggle-switch.on{background:var(--success);}
@@ -1233,6 +1242,59 @@ let menuItems = MENU_SECTIONS.flatMap(s =>
 // ── Menú en línea: qué productos salen en la página de pedidos ──
 // Por defecto salen los que ya estaban en la página; los nuevos nacen apagados.
 const DEFAULT_ONLINE = new Set(["Espresso","Long Black","Cortado","Flat White","Latte","Cappuccino","Dirty Chai","Mocha","Mocha Blanco","Mocha Menta","Caramel Macchiato","Red Velvet Latte","Iced Espresso Americano","Iced Latte","Iced Caramel","Tiramisú Cold Foam","Cinnamon Cold Foam","Shakerato Cold Foam","Iced Chai Latte","Frappé Clásico","Frappé Mocha","Frappé Caramelo","Cold Brew","Orange Tonic","Vainilla Cold Foam","Matcha Orgánico","Matcha Latte","Iced Matcha Latte","Iced Coconut Foam Matcha","Iced Matcha Strawberry Foam","Iced Matcha Pistachio Foam","Matcha Ceremonial","Blue Matcha Lavanda","Iced Blue Matcha Lavanda","Mandarin Fizz","Tisana","Pan Almendrado","Pan Normal","Galletas"]);
+// Descripción corta que ve el cliente en la página de pedidos (editable por producto en la pestaña Menú)
+const DEFAULT_DESC = {
+  "espresso": "Intenso y aromático: un shot de espresso.",
+  "long black": "Espresso largo sobre agua caliente, con cuerpo y suave.",
+  "americano": "Espresso con agua caliente, limpio y ligero.",
+  "espresso tonic": "Espresso sobre agua tónica y hielo, cítrico y refrescante.",
+  "latte p. cloud": "Latte frío con foam de calabaza.",
+  "matcha p. cloud": "Matcha con leche y hielo, con foam de calabaza.",
+  "chai p. cloud": "Chai latte con hielo y foam de calabaza.",
+  "cortado": "Espresso con un toque de leche, corto e intenso.",
+  "flat white": "Espresso con leche sedosa: más café, menos espuma.",
+  "latte": "Espresso con leche vaporizada, suave y cremoso.",
+  "cappuccino": "Espresso con leche y espuma, equilibrado y aterciopelado.",
+  "dirty chai": "Chai especiado con leche y un shot de espresso.",
+  "mocha": "Espresso con leche y chocolate oscuro.",
+  "mocha blanco": "Espresso con leche y chocolate blanco, dulce y cremoso.",
+  "mocha menta": "Espresso con leche, chocolate y un toque de menta.",
+  "caramel macchiato": "Espresso con leche, vainilla y caramelo.",
+  "red velvet latte": "Espresso con leche y sabor red velvet, dulce y suave.",
+  "iced espresso americano": "Espresso sobre hielo y agua, ligero y refrescante.",
+  "iced latte": "Espresso con leche fría y hielo.",
+  "iced caramel": "Iced latte con caramelo.",
+  "tiramisú cold foam": "Iced latte con foam cremoso de tiramisú y cocoa.",
+  "cinnamon cold foam": "Iced latte con foam de canela.",
+  "shakerato cold foam": "Espresso con leche y hielo, shakeado y con foam encima.",
+  "iced chai latte": "Chai especiado con leche y hielo, shakeado.",
+  "frappé clásico": "Frappé cremoso de espresso y leche.",
+  "frappé mocha": "Frappé de espresso con chocolate.",
+  "frappé caramelo": "Frappé de espresso con caramelo.",
+  "cold brew": "Café infusionado en frío por 12 horas: suave y sin amargor.",
+  "orange tonic": "Cold brew con jugo de naranja y agua tónica.",
+  "vainilla cold foam": "Cold brew con foam de vainilla.",
+  "matcha orgánico": "Matcha orgánico con agua o leche, caliente o frío.",
+  "matcha latte": "Matcha con leche, cremoso y suave.",
+  "iced matcha latte": "Matcha con leche y hielo, endulzado con monk fruit.",
+  "iced coconut foam matcha": "Agua de coco con hielo y foam de coco con matcha encima.",
+  "iced matcha strawberry foam": "Matcha con leche y hielo, con foam de fresa.",
+  "iced matcha pistachio foam": "Matcha con leche y hielo, con foam de pistache.",
+  "iced matcha coconut foam": "Matcha con leche y hielo, con foam de coco.",
+  "matcha ceremonial": "Matcha ceremonial con agua o leche, caliente o frío.",
+  "blue matcha lavanda": "Blue matcha con lavanda y leche. Sin cafeína.",
+  "iced blue matcha lavanda": "Blue matcha con lavanda y agua mineral, con hielo. Sin cafeína.",
+  "mandarin fizz": "Mandarina y fresa con agua mineral y hielo. Sin cafeína.",
+  "tisana": "Infusión de hierbas, caliente o fría. Sin cafeína.",
+  "pan almendrado": "Escoge en sucursal el pan disponible.",
+  "pan normal": "Escoge en sucursal el pan disponible.",
+  "matcha coco avena": "Matcha ceremonial con leche de avena y foam de coco.",
+  "lotus latte": "Iced latte con foam de lotus y galleta lotus espolvoreada.",
+  "chocolate caliente": "Cacao de Soconusco 71% con bombones pequeños encima.",
+  "frosted matcha": "Matcha ceremonial con avena, foam de coco y coco rayado.",
+  "toasted latte": "Iced latte con foam de tiramisú y un bombón tostado encima."
+};
+function itemDesc(i){ if(i.desc!==undefined && i.desc!==null) return String(i.desc); return DEFAULT_DESC[String(i.name||'').trim().toLowerCase()] || ''; }
 function itemOnline(i){ return (i.online===undefined || i.online===null) ? DEFAULT_ONLINE.has(i.name) : !!i.online; }
 function itemOnMilk(i){ return (i.onMilk===undefined || i.onMilk===null) ? CAN_CHANGE_MILK.has(i.name) : !!i.onMilk; }
 function itemOnFlavor(i){ return (i.onFlavor===undefined || i.onFlavor===null) ? CAN_CHANGE_FLAVOR.has(i.name) : !!i.onFlavor; }
@@ -1246,7 +1308,7 @@ function publishOnlineMenu() {
     if(!i.active || !itemOnline(i) || !isFinite(price) || price <= 0 || !String(i.name||'').trim()) return;
     const c = i.category || 'Otros';
     if(!cats[c]){ cats[c] = []; order.push(c); }
-    cats[c].push({ id:i.id, name:String(i.name).trim(), price, emoji:i.emoji||'☕', note:i.note||'', photo:i.photo ? '/api/photo?id=' + i.id + (i.photoV ? '&v=' + i.photoV : '') : '', milk:itemOnMilk(i), flavor:itemOnFlavor(i) });
+    cats[c].push({ id:i.id, name:String(i.name).trim(), price, emoji:i.emoji||'☕', note:i.note||'', desc:itemDesc(i).slice(0,160), photo:i.photo ? '/api/photo?id=' + i.id + (i.photoV ? '&v=' + i.photoV : '') : '', milk:itemOnMilk(i), flavor:itemOnFlavor(i) });
   });
   order.sort((a,b)=> (b==='Temporada') - (a==='Temporada')); // Temporada va primero
   return window._set(window._ref(window._db, 'onlineMenu'), {
@@ -1258,7 +1320,7 @@ window.publishOnlineMenu = publishOnlineMenu;
 
 // ── Persistencia de menú en Firebase ──
 function saveMenuToFirebase() {
-  if(!window._fbReady){ showToast('⚠️ Sin conexión: el cambio NO se guardó'); return; }
+  if(!window._fbReady){ showToast('⚠️ Sin conexión: el cambio NO se guardó'); return Promise.resolve(false); }
   // Multi-path update: solo campos de texto, NUNCA reenvía las fotos (base64) del menú.
   // Cada valor se limpia: Firebase rechaza TODO el guardado si UN solo valor es inválido (undefined, NaN).
   const upd = {};
@@ -1273,6 +1335,7 @@ function saveMenuToFirebase() {
     upd[b+'active']   = !!item.active;
     upd[b+'stock']    = Number(item.stock) || 99;
     upd[b+'note']     = item.note || null;
+    upd[b+'desc']     = (item.desc === undefined ? null : item.desc);
     upd[b+'photoV']   = item.photoV || null;
     upd[b+'online']   = (item.online   === undefined ? null : item.online);
     upd[b+'onMilk']   = (item.onMilk   === undefined ? null : item.onMilk);
@@ -1287,8 +1350,8 @@ function saveMenuToFirebase() {
   try {
     const guardar  = Promise.resolve(window._update(window._ref(window._db, 'menuData'), upd));
     const publicar = Promise.resolve(publishOnlineMenu());
-    Promise.all([guardar, publicar]).then(() => showToast('✓ Menú guardado · pedidos en línea actualizado')).catch(fallo);
-  } catch(err) { fallo(err); }
+    return Promise.all([guardar, publicar]).then(() => { showToast('✓ Menú guardado · pedidos en línea actualizado'); return true; }).catch(err => { fallo(err); return false; });
+  } catch(err) { fallo(err); return Promise.resolve(false); }
 }
 
 function loadMenuFromFirebase(data) {
@@ -1310,6 +1373,7 @@ function loadMenuFromFirebase(data) {
       item.stock    = saved.stock || 99;
       item.photo    = saved.photo || null;
       item.note     = saved.note || null;
+      item.desc     = (saved.desc === undefined ? null : saved.desc);
       item.photoV   = saved.photoV || null;
       item.online   = (saved.online   === undefined ? null : saved.online);
       item.onMilk   = (saved.onMilk   === undefined ? null : saved.onMilk);
@@ -1327,10 +1391,48 @@ function loadMenuFromFirebase(data) {
   loadPhotosFromLocalStorage();
   if(document.getElementById('screen-menu-editor')?.classList.contains('active'))
     renderMenuEditor();
+  window._menuLoadedOnce = true;
+  if(typeof window.trySeedMenu === 'function') window.trySeedMenu();
   // Primera carga de la sesión: deja publicado el menú en línea (si no existía aún)
   if(!window._onlineMenuPublished){ window._onlineMenuPublished = true; Promise.resolve(publishOnlineMenu()).catch(e => console.error('Publicar menú en línea:', e)); }
 }
 window.loadMenuFromFirebase = loadMenuFromFirebase;
+
+// ── Productos nuevos que se agregan UNA sola vez (después se editan o borran como cualquiera) ──
+const MENU_SEEDS = {
+  'temporada_2026_11': [
+    {name:'Matcha Coco Avena',  price:90, emoji:'🥥', category:'Temporada', onMilk:false, onFlavor:false},
+    {name:'Lotus Latte',        price:85, emoji:'🍪', category:'Temporada', onMilk:true,  onFlavor:false},
+    {name:'Chocolate Caliente', price:65, emoji:'🍫', category:'Temporada', onMilk:true,  onFlavor:false},
+    {name:'Frosted Matcha',     price:95, emoji:'❄️', category:'Temporada', onMilk:false, onFlavor:false},
+    {name:'Toasted Latte',      price:85, emoji:'🔥', category:'Temporada', onMilk:true,  onFlavor:false},
+  ]
+};
+function trySeedMenu(){
+  if(!window._fbReady || !window._seedsReady || !window._menuLoadedOnce || window._seeding) return;
+  const seeds = window._menuSeeds || {};
+  const pending = Object.keys(MENU_SEEDS).filter(k => !seeds[k]);
+  if(!pending.length) return;
+  window._seeding = true;
+  const have = new Set(menuItems.map(i => String(i.name||'').trim().toLowerCase()));
+  let nextId = menuItems.reduce((m,i) => Math.max(m, Number(i.id)||0), 0);
+  pending.forEach(k => {
+    MENU_SEEDS[k].forEach(it => {
+      if(have.has(it.name.toLowerCase())) return;
+      nextId += 1;
+      menuItems.push({ id:nextId, name:it.name, price:it.price, emoji:it.emoji, category:it.category, active:true, stock:99,
+        online:true, onMilk:it.onMilk, onFlavor:it.onFlavor, options: buildOpts(it.name) });
+    });
+  });
+  Promise.resolve(saveMenuToFirebase()).then(ok => {
+    if(!ok){ window._seeding = false; return; }
+    return Promise.all(pending.map(k => window._set(window._ref(window._db, 'menuSeeds/' + k), Date.now())))
+      .then(() => { buildMenu(); if(document.getElementById('screen-menu-editor')?.classList.contains('active')) renderMenuEditor(); showToast('✓ Bebidas de temporada agregadas'); })
+      .catch(e => { console.error('Semilla de menú:', e); })
+      .finally(() => { window._seeding = false; });
+  });
+}
+window.trySeedMenu = trySeedMenu;
 
 // ══════════════════════════════════════════════════════════════
 // ESTADO GLOBAL
@@ -3418,6 +3520,7 @@ function renderMenuEditor(){
         </div>
       </div>
       <input class="editor-price-input" type="number" value="${item.price}" onchange="updateItem(${item.id},'price',parseFloat(this.value))" placeholder="Precio">
+      <textarea class="editor-desc-input" rows="2" maxlength="160" onchange="updateItem(${item.id},'desc',this.value)" placeholder="Descripción para la página de pedidos (qué lleva)">${String(itemDesc(item)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
       <select class="editor-cat-select" onchange="updateItem(${item.id},'category',this.value)">
         ${CATEGORIES.filter(c=>c!=='Todos').map(c=>`<option ${item.category===c?'selected':''}>${c}</option>`).join('')}
       </select>
