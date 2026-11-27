@@ -1128,7 +1128,7 @@ const CAN_CHANGE_FLAVOR = new Set([
 ]);
 
 const MILK_OPTIONS = ['Entera (incluida)','Deslactosada (+$3)','Light (+$5)','Almendra (+$8)','Avena (+$15)'];
-const FLAVORS      = ['Sin sabor extra','Vainilla (+$10)','Caramelo (+$10)','Avellana (+$10)','Canela (+$10)','Menta (+$10)','Crema Irlandesa (+$10)','Amareto (+$10)','Miel (+$10)'];
+const FLAVORS      = ['Sin sabor extra','Vainilla (+$10)','Caramelo (+$10)','Menta (+$10)','Red Velvet (+$10)','Canela (+$10)','Crema Irlandesa (+$10)','Honey (+$10)'];
 const TEMP_OPTIONS = ['Caliente','Frío'];
 
 const CAN_CHANGE_TEMP = new Set([
@@ -1153,8 +1153,8 @@ function buildOpts(name) {
 const MENU_SECTIONS = [
   { id:'temporada', label:'Temporada', icon:'🍂', items:[] },
   { id:'espresso', label:'Espresso', icon:'☕', items:[
-    {id:1, name:'Espresso',   price:35, emoji:'☕'},
-    {id:2, name:'Long Black', price:45, emoji:'☕'},
+    {id:1, name:'Espresso',   price:45, emoji:'☕'},
+    {id:2, name:'Long Black', price:50, emoji:'☕'},
     {id:55, name:'Americano', price:45, emoji:'☕'},
     {id:56, name:'ESPRESSO TONIC',   price:65,  emoji:'☕'},
     {id:57, name:'SABOR EXTRA',      price:10,  emoji:'➕'},
@@ -1170,9 +1170,9 @@ const MENU_SECTIONS = [
     {id:67, name:'Beso de Nuez',        price:5,  emoji:'🌰'},
   ]},
   { id:'con-leche', label:'Con leche', icon:'🥛', items:[
-    {id:3,  name:'Cortado',           price:45, emoji:'🥛'},
-    {id:4,  name:'Flat White',        price:50, emoji:'🥛'},
-    {id:5,  name:'Latte',             price:55, emoji:'🥛'},
+    {id:3,  name:'Cortado',           price:50, emoji:'🥛'},
+    {id:4,  name:'Flat White',        price:55, emoji:'🥛'},
+    {id:5,  name:'Latte',             price:60, emoji:'🥛'},
     {id:6,  name:'Cappuccino',        price:55, emoji:'☕'},
     {id:7,  name:'Dirty Chai',        price:65, emoji:'🌶️'},
     {id:8,  name:'Mocha',             price:65, emoji:'🍫'},
@@ -1183,30 +1183,30 @@ const MENU_SECTIONS = [
   ]},
   { id:'heladas', label:'Bebidas heladas', icon:'🧊', items:[
     {id:13, name:'Iced Espresso Americano', price:55, emoji:'🧊'},
-    {id:14, name:'Iced Latte',             price:60, emoji:'🧊'},
-    {id:15, name:'Iced Caramel',           price:70, emoji:'🍮'},
-    {id:16, name:'Tiramisú Cold Foam',     price:80, emoji:'🍰'},
-    {id:17, name:'Cinnamon Cold Foam',     price:80, emoji:'✨'},
+    {id:14, name:'Iced Latte',             price:65, emoji:'🧊'},
+    {id:15, name:'Iced Caramel',           price:75, emoji:'🍮'},
+    {id:16, name:'Tiramisú Cold Foam',     price:85, emoji:'🍰'},
+    {id:17, name:'Cinnamon Cold Foam',     price:85, emoji:'✨'},
     {id:18, name:'Shakerato Cold Foam',    price:85, emoji:'🥤'},
-    {id:19, name:'Iced Chai Latte',        price:70, emoji:'🌶️'},
-    {id:20, name:'Frappé Clásico',         price:80, emoji:'🧋'},
-    {id:21, name:'Frappé Mocha',           price:85, emoji:'🧋'},
-    {id:22, name:'Frappé Caramelo',        price:85, emoji:'🧋'},
+    {id:19, name:'Iced Chai Latte',        price:65, emoji:'🌶️'},
+    {id:20, name:'Frappé Clásico',         price:95, emoji:'🧋'},
+    {id:21, name:'Frappé Mocha',           price:95, emoji:'🧋'},
+    {id:22, name:'Frappé Caramelo',        price:95, emoji:'🧋'},
   ]},
   { id:'cold-brew', label:'Cold Brew', icon:'🫙', items:[
-    {id:23, name:'Cold Brew',          price:70, emoji:'🧊'},
-    {id:24, name:'Orange Tonic',       price:85, emoji:'🍊'},
-    {id:25, name:'Vainilla Cold Foam', price:90, emoji:'🤍'},
+    {id:23, name:'Cold Brew',          price:75, emoji:'🧊'},
+    {id:24, name:'Orange Tonic',       price:90, emoji:'🍊'},
+    {id:25, name:'Vainilla Cold Foam', price:95, emoji:'🤍'},
   ]},
   { id:'matcha', label:'Matcha', icon:'🍵', items:[
-    {id:26, name:'Matcha Orgánico',             price:60, emoji:'🍵'},
+    {id:26, name:'Matcha Orgánico',             price:65, emoji:'🍵'},
     {id:27, name:'Matcha Latte',                price:65, emoji:'🍵'},
-    {id:28, name:'Iced Matcha Latte',           price:70, emoji:'🍵', note:'Monk Fruit'},
-    {id:29, name:'Iced Coconut Foam Matcha',    price:90, emoji:'🥥', note:'Monk Fruit'},
-    {id:30, name:'Iced Matcha Strawberry Foam', price:90, emoji:'🍓', note:'Monk Fruit'},
-    {id:31, name:'Iced Matcha Pistachio Foam',  price:90, emoji:'🌿', note:'Monk Fruit'},
-    {id:32, name:'Matcha Ceremonial',           price:80, emoji:'🍵'},
-    {id:50, name:'Iced Matcha Coconut Foam',    price:90, emoji:'🥥', note:'Monk Fruit'},
+    {id:28, name:'Iced Matcha Latte',           price:75, emoji:'🍵', note:'Monk Fruit'},
+    {id:29, name:'Iced Coconut Foam Matcha',    price:95, emoji:'🥥', note:'Monk Fruit'},
+    {id:30, name:'Iced Matcha Strawberry Foam', price:95, emoji:'🍓', note:'Monk Fruit'},
+    {id:31, name:'Iced Matcha Pistachio Foam',  price:95, emoji:'🌿', note:'Monk Fruit'},
+    {id:32, name:'Matcha Ceremonial',           price:85, emoji:'🍵'},
+    {id:50, name:'Iced Matcha Coconut Foam',    price:95, emoji:'🥥', note:'Monk Fruit'},
   ]},
   { id:'sin-cafeina', label:'Sin cafeína', icon:'🌸', items:[
     {id:33, name:'Blue Matcha Lavanda',      price:85, emoji:'💜'},
@@ -1402,22 +1402,42 @@ window.loadMenuFromFirebase = loadMenuFromFirebase;
 const MENU_SEEDS = {
   'temporada_2026_11': [
     {name:'Matcha Coco Avena',  price:90, emoji:'🥥', category:'Temporada', onMilk:false, onFlavor:false},
-    {name:'Lotus Latte',        price:85, emoji:'🍪', category:'Temporada', onMilk:true,  onFlavor:false},
+    {name:'Lotus Latte',        price:105, emoji:'🍪', category:'Temporada', onMilk:true,  onFlavor:false},
     {name:'Chocolate Caliente', price:65, emoji:'🍫', category:'Temporada', onMilk:true,  onFlavor:false},
     {name:'Frosted Matcha',     price:95, emoji:'❄️', category:'Temporada', onMilk:false, onFlavor:false},
     {name:'Toasted Latte',      price:85, emoji:'🔥', category:'Temporada', onMilk:true,  onFlavor:false},
+  ],
+  // Menú nuevo (26-nov-2026): bebida nueva
+  'menu_2026_11_26': [
+    {name:'Honey Latte', price:70, emoji:'🍯', category:'Con leche', onMilk:true, onFlavor:false},
   ]
+};
+// Precios del menú nuevo: se aplican UNA sola vez (después se editan en la pestaña Menú como siempre)
+const MENU_PRICES = {
+  'menu_2026_11_26': {
+    'espresso':45,'long black':50,
+    'cortado':50,'flat white':55,'latte':60,'cappuccino':55,'dirty chai':65,'mocha':65,'caramel macchiato':70,'honey latte':70,
+    'espresso tonic':65,'iced latte':65,'iced chai latte':65,'iced caramel':75,
+    'tiramisú cold foam':85,'cinnamon cold foam':85,'shakerato cold foam':85,'lotus latte':105,
+    'frappé clásico':95,'frappé mocha':95,'frappé caramelo':95,
+    'cold brew':75,'orange tonic':90,'vainilla cold foam':95,
+    'matcha orgánico':65,'iced matcha latte':75,'iced coconut foam matcha':95,'iced matcha coconut foam':95,
+    'iced matcha strawberry foam':95,'iced matcha pistachio foam':95,'matcha ceremonial':85,
+    'blue matcha lavanda':85,'iced blue matcha lavanda':85,'mandarin fizz':85,'tisana':55
+  }
 };
 function trySeedMenu(){
   if(!window._fbReady || !window._seedsReady || !window._menuLoadedOnce || window._seeding) return;
   const seeds = window._menuSeeds || {};
-  const pending = Object.keys(MENU_SEEDS).filter(k => !seeds[k]);
+  const pending = Array.from(new Set(Object.keys(MENU_SEEDS).concat(Object.keys(MENU_PRICES)))).filter(k => !seeds[k]);
   if(!pending.length) return;
   window._seeding = true;
   const have = new Set(menuItems.map(i => String(i.name||'').trim().toLowerCase()));
   let nextId = menuItems.reduce((m,i) => Math.max(m, Number(i.id)||0), 0);
   pending.forEach(k => {
-    MENU_SEEDS[k].forEach(it => {
+    const pr = MENU_PRICES[k] || {};
+    menuItems.forEach(mi => { const v = pr[String(mi.name||'').trim().toLowerCase()]; if(v !== undefined) mi.price = v; });
+    (MENU_SEEDS[k] || []).forEach(it => {
       if(have.has(it.name.toLowerCase())) return;
       nextId += 1;
       menuItems.push({ id:nextId, name:it.name, price:it.price, emoji:it.emoji, category:it.category, active:true, stock:99,
@@ -1427,7 +1447,7 @@ function trySeedMenu(){
   Promise.resolve(saveMenuToFirebase()).then(ok => {
     if(!ok){ window._seeding = false; return; }
     return Promise.all(pending.map(k => window._set(window._ref(window._db, 'menuSeeds/' + k), Date.now())))
-      .then(() => { buildMenu(); if(document.getElementById('screen-menu-editor')?.classList.contains('active')) renderMenuEditor(); showToast('✓ Bebidas de temporada agregadas'); })
+      .then(() => { buildMenu(); if(document.getElementById('screen-menu-editor')?.classList.contains('active')) renderMenuEditor(); showToast('✓ Menú y precios nuevos aplicados'); })
       .catch(e => { console.error('Semilla de menú:', e); })
       .finally(() => { window._seeding = false; });
   });
